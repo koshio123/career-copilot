@@ -97,5 +97,9 @@ Phase 04 as written; Phase 00 only stands up SQS/S3 emulation.
   `@types/node` off "Current" (26); it's bumped manually with the runtime.
 - All 9 initial Dependabot PRs were branched off the pre-rewrite commit and must
   be recreated; see the PR review notes.
+- Python pinned to **3.13** (`.python-version`, `requires-python`, ruff
+  `target-version`, mypy `python_version`). The bump surfaced UP043 in
+  `conftest.py` (`AsyncGenerator[AsyncClient, None]` → `AsyncGenerator[AsyncClient]`
+  — the return type now has a default). Gates green on 3.13.6.
 - Next: **Phase 01** — domain model & DB schema, `pgvector` decision, Alembic
   baseline.

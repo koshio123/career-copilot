@@ -2,7 +2,7 @@
 name = "career-copilot-backend"
 version = "0.0.0"
 description = "Career Copilot backend API and async workers"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -45,7 +45,7 @@ dev = [
 package = false
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 line-length = 100
 src = ["app", "tests"]
 
@@ -56,7 +56,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PTH", "ASYNC", "RUF"]
 known-first-party = ["app"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["app", "tests"]
