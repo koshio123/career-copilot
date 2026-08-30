@@ -29,10 +29,10 @@ jobs:
       APP_ENV: local
       APP_DATABASE_URL: postgresql+asyncpg://career:career@localhost:5432/career_copilot_test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
