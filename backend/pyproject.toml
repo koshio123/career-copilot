@@ -1,0 +1,72 @@
+[project]
+name = "career-copilot-backend"
+version = "0.0.0"
+description = "Career Copilot backend API and async workers"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "argon2-cffi>=23.1",
+    "structlog>=24.4",
+    "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+# Async worker runtime (Phase 04+). Kept out of the API image.
+worker = [
+    "boto3>=1.35",
+    "trafilatura>=2.0",
+    "selectolax>=0.3.25",
+    "protego>=0.3",
+]
+# Headless browser for JS-rendered crawl targets (Phase 06). Runs on Fargate,
+# never bundled into a Lambda zip.
+browser = [
+    "playwright>=1.48",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+]
+
+[tool.uv]
+# This is an application, not a distributable package: manage the environment,
+# don't build/install the project itself.
+package = false
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PTH", "ASYNC", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["app", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["trafilatura.*", "selectolax.*", "protego.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q --strict-markers"

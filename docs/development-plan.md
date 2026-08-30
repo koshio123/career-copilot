@@ -51,21 +51,21 @@
 
 **Goal**: 誰でも `clone → up → test` でき、CI が守る土台を作る。
 
-- [ ] モノレポ構成を確定：`backend/` `backend/app/workers/` `frontend/` `infra/terraform/` `infra/localstack/` `docs/` `scripts/`
-- [ ] Python ツールチェーン：`uv` + `pyproject.toml`（extras を `worker` / `browser` に分割）、Ruff、mypy strict
-- [ ] Node ツールチェーン：pnpm、TypeScript strict、ESLint、Prettier、Vite（React SPA）
-- [ ] フロント構成の方針決め：UI（デザインシステム or ヘッドレス UI）、状態管理、データ取得（TanStack Query）、フォーム（React Hook Form + zod）
-- [ ] pre-commit：ruff / mypy / eslint / terraform fmt / シークレット検出（gitleaks か detect-secrets）
-- [ ] ローカル環境：`docker-compose` に Postgres（ホスト側ポート **5433**）+ LocalStack（SQS / S3）。`.env.example`、EditorConfig、`.gitignore`
-- [ ] Makefile：`up/down` `lint` `test` `migrate` `worker`（ローカルワーカー起動）
-- [ ] CI（GitHub Actions）：backend / frontend / infra の 3 ワークフロー。lint + type + test、依存キャッシュ、`main` と PR で実行
-- [ ] 依存脆弱性スキャン：Dependabot か renovate、CI に `pip-audit` / `npm audit`
-- [ ] ブランチ / コミット規約：trunk ベース、Conventional Commits、PR テンプレート、CODEOWNERS（任意）
-- [ ] 初期 ADR：モノレポ採用 / API は Lambda 開始・Fargate 切替条件 / 認証は cookie セッション / ワーカーの Lambda・Fargate 分割 / 求人取得ハイブリッド / 機微データ保護の方針 / フロントは SPA
-- [ ] README：セットアップ手順、アーキテクチャ図、ライセンス方針（private を明記）
-- [ ] シークレット方針：ローカルは `.env`、クラウドは SSM Parameter Store（SecureString）。鍵は絶対にコミットしない
+- [x] モノレポ構成を確定：`backend/`（API + workers 同一パッケージ）`frontend/` `infra/terraform/` `infra/localstack/` `docs/` `scripts/`（ADR-0002）
+- [x] Python ツールチェーン：`uv` + `pyproject.toml`（extras を `worker` / `browser` に分割、`package = false`）、Ruff、mypy strict
+- [x] Node ツールチェーン：pnpm、TypeScript strict、ESLint（flat config）、Prettier、Vite（React SPA）
+- [x] フロント構成の方針決め：状態管理・データ取得（TanStack Query）・フォーム（RHF + zod）・API クライアント（openapi-typescript）を ADR-0008 で確定。UI コンポーネント方針は Phase 03（実画面が出てから）
+- [x] pre-commit：generic hooks + detect-secrets（`.secrets.baseline`）+ ruff / mypy / eslint / prettier / terraform fmt の local hook
+- [x] ローカル環境：`docker-compose` に Postgres（ホスト **5433**、`_test` DB を init SQL で作成）+ LocalStack（SQS / S3）。`.env.example`、`.editorconfig`、`.gitignore`
+- [x] Makefile：`up/down` `install` `api` `web` `migrate` `worker` `lint` `fmt` `test`（+ `make help`）
+- [x] CI（GitHub Actions）：backend / frontend / infra の 3 ワークフロー、path フィルタ、依存キャッシュ、`main` と PR で実行
+- [x] 依存脆弱性スキャン：`.github/dependabot.yml`（uv / npm / actions / terraform、週次・グループ化）、CI に `pip-audit`（backend）/ `pnpm audit`（frontend）
+- [x] ブランチ / コミット規約：trunk ベース（`phase-00-foundation` で作業）、PR テンプレート。Conventional Commits は運用ルール、CODEOWNERS は未設定（任意）
+- [x] 初期 ADR：ADR-0001〜0008（ADR 運用 / モノレポ / API Lambda 開始 / cookie セッション認証 / ワーカー Lambda・Fargate 分割 / 求人取得ハイブリッド / 機微データ保護 / フロント SPA）
+- [x] README：セットアップ手順、アーキテクチャ図、レイアウト表、private 明記
+- [x] シークレット方針：ローカルは `backend/.env`、クラウドは SSM Parameter Store（SecureString）。`.gitignore` で `.env` 除外、detect-secrets で防御
 
-**Done**: `make lint && make test` がグリーン、CI が `main` で通過、`docker compose up` で API と DB が起動する。
+**Done**: `make lint && make test` グリーン、`docker compose up` で API と DB が起動（確認済み）。CI は GitHub 上で `main` push 時に検証。
 
 ---
 
