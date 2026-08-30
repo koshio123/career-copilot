@@ -118,5 +118,16 @@ was too fragile:
   `pip-audit` / `pnpm audit` steps.
 - Removed the `terraform` Dependabot ecosystem until `infra/terraform` has real
   `.tf` files (it errored with no manifest). Back in Phase 10.
+
+### 2026-08-30 (later still) — clear the initial Dependabot backlog
+
+Once CI was green, every recreated Dependabot PR passed. Merged:
+
+- **GH Actions group** (PR #10): checkout v4→v7, setup-node v4→v7, setup-uv
+  v5→v7, pnpm/action-setup v4→v6, setup-terraform v3→v4.
+- **Frontend dev-deps**, squashed into one commit here instead of 4 merges:
+  typescript 5.7→6.0, @vitejs/plugin-react 4→5, eslint-plugin-react-hooks 5→7,
+  eslint-plugin-react-refresh 0.4→0.5. Gates green on all four (Phase 00 code is
+  minimal enough that the majors are no-ops).
 - Next: **Phase 01** — domain model & DB schema, `pgvector` decision, Alembic
   baseline.
