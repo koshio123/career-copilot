@@ -15,11 +15,18 @@ updates:
     groups:
       frontend-minor:
         update-types: [minor, patch]
+    ignore:
+      # @types/node must track the Node runtime major (currently 22), not latest.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
 
   - package-ecosystem: terraform
     directory: /infra/terraform
