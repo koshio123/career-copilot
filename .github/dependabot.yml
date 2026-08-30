@@ -29,7 +29,4 @@ updates:
       actions:
         patterns: ["*"]
 
-  - package-ecosystem: terraform
-    directory: /infra/terraform
-    schedule:
-      interval: weekly
+  # Terraform is added back in Phase 10 when infra/terraform has real .tf files.

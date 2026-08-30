@@ -51,16 +51,3 @@ jobs:
 
       - name: pytest
         run: uv run pytest --cov=app --cov-report=term-missing
-
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: backend/uv.lock
-      - name: Dependency vulnerability scan
-        run: |
-          uv export --frozen --no-emit-project --all-extras -o "$RUNNER_TEMP/requirements.txt"
-          uvx pip-audit -r "$RUNNER_TEMP/requirements.txt"

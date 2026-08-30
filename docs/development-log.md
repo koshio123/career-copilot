@@ -101,5 +101,22 @@ Phase 04 as written; Phase 00 only stands up SQS/S3 emulation.
   `target-version`, mypy `python_version`). The bump surfaced UP043 in
   `conftest.py` (`AsyncGenerator[AsyncClient, None]` → `AsyncGenerator[AsyncClient]`
   — the return type now has a default). Gates green on 3.13.6.
+
+### 2026-08-30 (later still) — CI fixes from the first real runs
+
+First push to `main` surfaced two CI bugs, plus a dependency-audit approach that
+was too fragile:
+
+- **`pnpm/action-setup` "No pnpm version specified"** — `defaults.run.working-directory`
+  does not apply to action inputs, and there is no root `package.json`. Fix:
+  `package_json_file: frontend/package.json`.
+- **`pip-audit` tried to build `lxml` from source** (re-resolved the exported
+  requirements in a throwaway venv without system headers). Replaced the whole
+  approach: new `security.yml` runs **OSV-Scanner** directly against
+  `backend/uv.lock` + `frontend/pnpm-lock.yaml` (both ecosystems, one tool, no
+  venv/resolution) on lockfile changes + weekly. Dropped the per-workflow
+  `pip-audit` / `pnpm audit` steps.
+- Removed the `terraform` Dependabot ecosystem until `infra/terraform` has real
+  `.tf` files (it errored with no manifest). Back in Phase 10.
 - Next: **Phase 01** — domain model & DB schema, `pgvector` decision, Alembic
   baseline.

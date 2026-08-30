@@ -1,0 +1,31 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/uv.lock"
+      - "frontend/pnpm-lock.yaml"
+      - ".github/workflows/security.yml"
+  pull_request:
+    paths:
+      - "backend/uv.lock"
+      - "frontend/pnpm-lock.yaml"
+      - ".github/workflows/security.yml"
+  schedule:
+    # Catch newly disclosed CVEs against unchanged dependencies.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
+        with:
+          scan-args: |-
+            --lockfile=backend/uv.lock
+            --lockfile=frontend/pnpm-lock.yaml
