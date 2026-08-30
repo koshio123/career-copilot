@@ -40,6 +40,13 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra worker
 
+      - name: Migrations apply and match models
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+          uv run alembic check
+
       - name: Ruff lint
         run: uv run ruff check --output-format=github .
 

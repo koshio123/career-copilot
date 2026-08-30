@@ -55,18 +55,33 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PTH", "ASYNC", "RUF"]
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
 
+[tool.ruff.lint.per-file-ignores]
+# Alembic revisions are generated; keep them formatted but don't nitpick.
+"alembic/versions/*.py" = ["E501"]
+
 [tool.mypy]
 python_version = "3.13"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["app", "tests"]
+files = ["app", "tests", "alembic", "scripts"]
+exclude = ["^alembic/versions/"]
 
 [[tool.mypy.overrides]]
 module = ["trafilatura.*", "selectolax.*", "protego.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# Alembic's env.py uses a dynamically-typed API.
+module = ["alembic.env"]
+disallow_untyped_calls = false
+warn_return_any = false
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# One event loop for the whole session so the session-scoped DB engine and the
+# per-test sessions share it.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q --strict-markers"

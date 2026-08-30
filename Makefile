@@ -25,8 +25,17 @@ api: ## Run the API with autoreload on :8000
 web: ## Run the SPA dev server on :3000 (proxies /api to :8000)
 	cd frontend && pnpm dev
 
-migrate: ## Apply DB migrations (Phase 01+)
+migrate: ## Apply DB migrations
 	cd backend && uv run alembic upgrade head
+
+migration: ## Autogenerate a migration: make migration m="add x"
+	cd backend && uv run alembic revision --autogenerate -m "$(m)"
+
+check-migrations: ## Fail if models and migrations have drifted
+	cd backend && uv run alembic upgrade head && uv run alembic check
+
+seed: ## Load a minimal dev dataset
+	cd backend && uv run python -m scripts.seed
 
 worker: ## Run the async worker loop locally (Phase 04+)
 	cd backend && uv run python -m app.workers.runner
@@ -45,4 +54,4 @@ test: ## Run backend + frontend test suites
 	cd backend && uv run pytest
 	cd frontend && pnpm run test
 
-.PHONY: help up down install api web migrate worker lint fmt test
+.PHONY: help up down install api web migrate migration check-migrations seed worker lint fmt test

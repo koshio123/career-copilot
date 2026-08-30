@@ -22,3 +22,4 @@ rationale. Format: [MADR](https://adr.github.io/madr/)-lite.
 | [0006](0006-job-ingestion-hybrid.md) | Job ingestion: ATS API → JSON-LD → LLM hybrid | Accepted |
 | [0007](0007-sensitive-data-protection.md) | Sensitive data protection baseline | Accepted |
 | [0008](0008-frontend-react-spa.md) | Frontend as a React SPA (Vite) | Accepted |
+| [0009](0009-data-model-and-job-dedup.md) | Data model shape and job deduplication | Accepted |
