@@ -16,7 +16,8 @@ updates:
       frontend-minor:
         update-types: [minor, patch]
     ignore:
-      # @types/node must track the Node runtime major (currently 22), not latest.
+      # @types/node tracks the Node runtime major (currently 24 LTS), bumped
+      # manually alongside the CI node-version — not chased to "Current".
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
 

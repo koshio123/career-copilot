@@ -34,7 +34,7 @@ Rationale for the main choices lives in `docs/adr/`.
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (Python 3.12)
-- Node 22 + pnpm (`corepack enable pnpm`)
+- Node 24 (Active LTS) + pnpm (`corepack enable pnpm`)
 - Docker (Postgres + LocalStack)
 - Terraform (for `infra/`)
 

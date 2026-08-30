@@ -86,5 +86,16 @@ Phase 04 as written; Phase 00 only stands up SQS/S3 emulation.
 - UI component approach (design system vs. headless kit) is still open — decided
   in Phase 03 when real screens exist. Architecture (SPA, data, forms) is fixed
   in ADR-0008.
+
+### 2026-08-30 (later) — post-merge cleanup
+
+- Flattened the Phase 00 history to one commit (no `Co-Authored-By` trailer),
+  `main` set as the default branch on GitHub, `phase-00-foundation` deleted.
+- Node pinned to **24** (Active LTS "Krypton") instead of 22 (now Maintenance
+  LTS): `frontend/.nvmrc`, CI `node-version`, `@types/node@^24`,
+  `engines.node >=24`. Gates re-verified on Node 24. Dependabot keeps
+  `@types/node` off "Current" (26); it's bumped manually with the runtime.
+- All 9 initial Dependabot PRs were branched off the pre-rewrite commit and must
+  be recreated; see the PR review notes.
 - Next: **Phase 01** — domain model & DB schema, `pgvector` decision, Alembic
   baseline.
