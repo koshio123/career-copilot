@@ -21,7 +21,7 @@
 |---|---|---|
 | バックエンド | FastAPI + SQLAlchemy 2.0 (async) + asyncpg + Alembic | 仕様指定。I/O（LLM・HTTP）が支配的なので async が有利。 |
 | API ホスティング | **Lambda + API Gateway**（Lambda Web Adapter か Mangum）から開始 | 個人利用ではアイドルコストがほぼゼロ。持続的トラフィックや常時接続が必要になったら ECS Fargate + ALB へ。 |
-| 認証 | アプリ実装。**opaque セッショントークンを httpOnly / Secure / SameSite=Lax cookie** で発行、セッションは DynamoDB（TTL）に保存、変更系リクエストに CSRF 対策 | JS から触れるストレージに JWT を置かない。Cognito（仕様の代替案）は個人利用では過剰。 |
+| 認証 | アプリ実装。**第一要素は email 6桁 OTP（パスワードなし）**、**opaque セッショントークンを httpOnly / Secure / SameSite=Lax cookie** で発行、セッション・OTP は DynamoDB（TTL）に保存、変更系に double-submit CSRF。パスキー / OAuth は後続で加算 | パスワードは実装最大のセキュリティ負債。この種のプロダクトではパスワードレスが既定。JS 触れるストレージに JWT を置かない。ADR-0010（ADR-0004 を supersede）。 |
 | キュー | SQS（+ DLQ） | 仕様指定。無料枠内。 |
 | 非同期ワーカー | 短時間ジョブ（LLM 構造化・分析）＝ **Lambda**、ブラウザ/クロール（Playwright、15 分超の可能性）＝ **Fargate ワーカー** | ジョブ種別で分割。Playwright は Lambda パッケージングが苦しいので Fargate のコンテナで動かす。 |
 | 定期実行 | **単一ディスパッチャ**：EventBridge Scheduler → Lambda が「取得期限が来た `job_sources`」を SQS に投入 | ソースごとに EventBridge ルールを作らない（数が増えると管理不能）。 |
@@ -30,7 +30,7 @@
 | フロント状態・取得 | TanStack Query、フォームは React Hook Form + zod、API クライアントは `openapi-typescript` + `openapi-fetch` で型生成 | 標準的で軽量。 |
 | IaC | Terraform | 仕様指定（CDK も可）。 |
 | シークレット | **SSM Parameter Store（SecureString）** から開始 | 個人利用では無料。ローテーションや複数環境が要るようになったら Secrets Manager へ。 |
-| ローカル開発 | `docker-compose`（Postgres + LocalStack で SQS/S3）。ワーカーは本番と同じハンドラ関数をプロセスで回す。テストは `moto` | ローカルで実 Lambda を再現しない（個人開発には過剰）。 |
+| ローカル開発 | `docker-compose`（Postgres + LocalStack で SQS / S3 / DynamoDB、メールは MailHog）。ワーカーは本番と同じハンドラ関数をプロセスで回す。テストは `moto` | ローカルで実 Lambda を再現しない（個人開発には過剰）。 |
 | Python ツール | `uv` / Ruff（lint + format）/ mypy strict / pytest | 現行の標準。 |
 
 ---
@@ -93,8 +93,9 @@
 
 - [ ] レイヤー構成：`api → services → repositories → models`。`pydantic-settings` で設定管理
 - [ ] 非同期 DB：SQLAlchemy 2.0 + asyncpg、セッション / Unit of Work、Alembic 連携
-- [ ] 認証：opaque セッショントークンを httpOnly / Secure / SameSite=Lax cookie で発行、セッションは DynamoDB（TTL）保存、パスワードは argon2、メール登録 + 検証、変更系に CSRF 対策。OAuth（Google / LinkedIn）は後続
-- [ ] 認可：ユーザーは自分のリソースのみ（行レベルのアクセス制御を共通化）
+- [ ] 認証（ADR-0010）：**email 6桁 OTP**（10分 TTL / hash 保存 / 5回失敗で無効 / email・IP レート制限 / 列挙対策で常に 202 / `otp_challenge` cookie でブラウザ bind）。opaque セッショントークンを httpOnly / Secure / SameSite=Lax cookie、サーバ側レコード（hash 保存）、30日スライディング期限。`sessions` / `otp_codes` / `auth_rate_limits` を DynamoDB（on-demand、TTL）に、`SessionStore` / `OtpStore` インタフェース越し。メール送信は SES（ローカルは MailHog / コンソール）。Phase 01 の `users.password_hash` を削除、`argon2-cffi` 除去。パスキー / OAuth は後続
+- [ ] 認可：ユーザーは自分のリソースのみ。リポジトリ基底クラスが `user_id` を必須化（書き忘れを型エラーに）。Postgres RLS は Phase 09 で検討
+- [ ] CSRF：`SameSite=Lax` + JSON のみ受理（form-encoded 拒否）+ 変更系に double-submit トークン。副作用のある GET を作らない
 - [ ] API 規約：`/api/v1` バージョニング、一覧はページネーション規約を統一、エラーレスポンスは Problem Details（RFC 9457）、セキュリティヘッダ
 - [ ] 入力バリデーション：Pydantic で全入力を検証。レート制限（API Gateway スロットリング。アプリ内で足す場合は共有ストア前提。プロセス内 limiter は複数インスタンスで効かない点に注意）
 - [ ] 構造化ログ：JSON（structlog 等）、`request_id`、PII はマスク / ハッシュ
@@ -102,7 +103,7 @@
 - [ ] OpenAPI：自動ドキュメント、フロント向けに `openapi-typescript` で型出力
 - [ ] テスト基盤：pytest、トランザクション分離、factory / fixtures、`httpx.AsyncClient`、カバレッジ閾値
 
-**Done**: 登録 → ログイン → 保護リソース取得の E2E テストが通り、OpenAPI が出力される。
+**Done**: OTP 要求 → コード検証 → セッション cookie 発行 → 保護リソース取得 → ログアウト の E2E テストが通り、OpenAPI が出力される。
 
 ---
 
@@ -225,7 +226,7 @@
 
 **Goal**: まず dev 単一環境を Terraform で再現可能にし、CI/CD で自動デプロイする。prod 分離は一般公開時。
 
-- [ ] Terraform モジュール：`network`(VPC) / `database`(RDS PostgreSQL) / `queue`(SQS + DLQ) / `api`(Lambda + API Gateway) / `workers`(Lambda + Fargate サービス + イベントソースマッピング) / `storage`(S3) / `frontend`(S3 + CloudFront、`/api/*` を API Gateway へ) / `scheduler`(EventBridge Scheduler → ディスパッチャ Lambda) / `sessions`(DynamoDB)
+- [ ] Terraform モジュール：`network`(VPC) / `database`(RDS PostgreSQL) / `queue`(SQS + DLQ) / `api`(Lambda + API Gateway) / `workers`(Lambda + Fargate サービス + イベントソースマッピング) / `storage`(S3) / `frontend`(S3 + CloudFront、`/api/*` を API Gateway へ) / `scheduler`(EventBridge Scheduler → ディスパッチャ Lambda) / `auth`(DynamoDB: sessions / otp_codes / auth_rate_limits) / `email`(SES: ドメイン検証 + DKIM)
 - [ ] 環境：当面 dev のみ。state は S3 backend（`backend.hcl`）、`tfvars.example`
 - [ ] シークレット：SSM Parameter Store（SecureString）に LLM API キー、DB 認証情報、セッション署名鍵
 - [ ] CI/CD：test → build（backend / worker イメージ、frontend）→ ECR push → マイグレーション（ワンショットタスク）→ デプロイ → スモークテスト

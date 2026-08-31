@@ -78,6 +78,25 @@ per-user scoping, JSONB, **pgvector deferred**, no native enums / no CHECK).
   that read/write them (Phase 05+).
 - `readyz` (DB-backed readiness) is Phase 02.
 
+### 2026-08-31 (later) — auth design revisited before Phase 02
+
+Reviewed the auth/authz option space (build vs. Cognito/Clerk/etc., credential
+type, session mechanism, store, authz model, CSRF). Outcome — **ADR-0010
+supersedes ADR-0004**:
+
+- First factor → **email 6-digit OTP, no passwords** (was email + password +
+  argon2). Passwords are the biggest security-critical surface; passwordless is
+  the mainstream default for this product's reference class. Passkeys + OAuth are
+  later, additive. `users.password_hash` will be dropped in the Phase 02
+  migration; `argon2-cffi` removed.
+- Session mechanism (opaque token, httpOnly/Secure/SameSite=Lax cookie,
+  server-side record) and same-origin CSRF reasoning **carry forward unchanged**.
+- Session/OTP store → **kept DynamoDB** (user's call): cost is effectively $0 at
+  this scale (always-free tier / pennies on-demand, free TTL deletes), and it
+  keeps auth-transient state off the primary DB. Behind `SessionStore` /
+  `OtpStore` interfaces.
+- Local dev gains LocalStack DynamoDB + MailHog.
+
 ---
 
 ## 2026-08-30 — Phase 00: Foundation and workflow
