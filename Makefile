@@ -37,6 +37,10 @@ check-migrations: ## Fail if models and migrations have drifted
 seed: ## Load a minimal dev dataset
 	cd backend && uv run python -m scripts.seed
 
+openapi: ## Regenerate backend/openapi.json + frontend API types
+	cd backend && uv run python -m scripts.dump_openapi
+	cd frontend && pnpm run gen:api
+
 worker: ## Run the async worker loop locally (Phase 04+)
 	cd backend && uv run python -m app.workers.runner
 
@@ -54,4 +58,4 @@ test: ## Run backend + frontend test suites
 	cd backend && uv run pytest
 	cd frontend && pnpm run test
 
-.PHONY: help up down install api web migrate migration check-migrations seed worker lint fmt test
+.PHONY: help up down install api web migrate migration check-migrations seed openapi worker lint fmt test

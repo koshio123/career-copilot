@@ -40,6 +40,11 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra worker
 
+      - name: OpenAPI schema is current
+        run: |
+          uv run python -m scripts.dump_openapi
+          git diff --exit-code openapi.json
+
       - name: Migrations apply and match models
         run: |
           uv run alembic upgrade head

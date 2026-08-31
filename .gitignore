@@ -17,6 +17,9 @@ node_modules/
 frontend/dist/
 frontend/.vite/
 *.tsbuildinfo
+frontend/playwright-report/
+frontend/test-results/
+frontend/.playwright/
 
 # --- Terraform ---
 .terraform/

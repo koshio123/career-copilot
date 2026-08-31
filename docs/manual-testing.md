@@ -1,7 +1,11 @@
 # 手動での動作確認
 
 自動テスト（`docs/local-testing.md`）とは別に、動いているアプリを手で叩いて確かめる手順。
-Phase 02 時点で叩けるのは health / 認証（email OTP）/ `/me` まで。
+
+- **API（curl / Swagger）**: health / 認証（email OTP）/ `/me`（Phase 02）→ 章 1〜5
+- **SPA（ブラウザ）**: ログイン画面 → 保護画面 → サインアウト（Phase 03）→ 章 6
+
+章 7（内部状態）・章 8（リセット）は両方で共通。
 
 ---
 
@@ -22,6 +26,15 @@ make api        # → http://localhost:8000  （別ターミナル）
 
 起動時ログに `career-copilot-local-{sessions,otp,ratelimit}` の DynamoDB テーブル作成が出る
 （ローカルのみ。dev/prod は Terraform）。
+
+## SPA を起動（章 6 で使う）
+
+```bash
+make web        # → http://localhost:3000  （さらに別ターミナル。API も起動しておく）
+```
+
+Vite dev サーバ。`/api/*` は `vite.config.ts` の proxy で `:8000` の API へ同一オリジンで転送される
+（本番は CloudFront が同じ振り分けをする）。フロントの `.env` は不要（Sentry は DSN 未設定で no-op）。
 
 ---
 
@@ -108,7 +121,50 @@ curl -s -D - -o /dev/null localhost:8000/healthz | grep -iE \
 
 ---
 
-## 6. 内部状態をのぞく
+## 6. SPA（ブラウザ）で通しで確認
+
+前提: `make up` / `make migrate` / `make api` / `make web` が起動済み。ブラウザの devtools を開いておく。
+
+### ハッピーパス
+
+1. <http://localhost:3000/> を開く → 未認証なので `/login` にリダイレクト（`ProtectedRoute` が
+   `state.from` に元パスを載せる）。URL が `/login` に変わる。
+2. **Email** に `me@example.com` を入れて **Send code**。
+   - Network タブで `POST /api/v1/auth/otp/request` が `202`、`Set-Cookie: cc_otp_challenge=...`。
+   - 見出しが「We sent a code to me@example.com」に変わり、6 桁入力欄が出る。
+3. コードを取得（章 3 と同じ）: `make api` のターミナルの `Your sign-in code is 123456` 行、
+   または `APP_EMAIL_BACKEND=smtp` なら <http://localhost:8025>。
+4. **6-digit code** に貼って **Verify**。
+   - `POST /api/v1/auth/otp/verify` が `200`、`cc_session`（httpOnly）と `cc_csrf`（JS 可読）が付く。
+   - `/` にリダイレクト。ヘッダに自分のメールと **Sign out**、本文に「Welcome back」。
+5. **リロード** しても入ったまま（`useMe` が cookie で `/api/v1/me` を引き直す）。
+6. **Sign out** → `POST /api/v1/auth/logout`（`x-csrf-token` は CSRF ミドルウェアが自動付与）→
+   `/login` に戻る。以降 `/` を開くと再びログインへ。
+
+### 失敗系・エッジ
+
+| やること | 期待 |
+|---|---|
+| Email 欄に `foo`（不正形式）で Send code | 送信されず「Enter a valid email address」（zod、クライアント側） |
+| 6 桁欄に `12345` など桁不足で Verify | 送信されず「Enter the 6-digit code」 |
+| 誤ったコードで Verify | `401`、フォーム上部に赤い alert（Problem Details の `detail`）。画面は 6 桁入力のまま |
+| コード入力画面で「Use a different email」 | メール入力画面に戻り、エラー表示もクリア |
+| ログイン済みで <http://localhost:3000/login> を直接開く | すぐ `/` に戻る（`LoginPage` が `useMe` を見てリダイレクト） |
+| 存在しないパス <http://localhost:3000/nope> | `/` に戻る（未ログインなら続けて `/login`） |
+| `make api` を止めて画面操作 | `/api/v1/me` が失敗、`ProtectedRoute` は未認証扱いで `/login`。操作系は alert |
+| devtools > Application で cookie 確認 | `cc_session` は HttpOnly ✓、`cc_csrf` は HttpOnly なし（JS から読めて当然） |
+
+### 本番ビルドの確認（任意）
+
+```bash
+cd frontend && pnpm build && pnpm preview   # → http://localhost:4173
+```
+
+`pnpm preview` は `/api` を proxy しない。API 疎通まで見たいときは `make web`（dev）を使う。
+
+---
+
+## 7. 内部状態をのぞく
 
 ### MailHog（`APP_EMAIL_BACKEND=smtp` のとき）
 
@@ -137,7 +193,7 @@ docker compose exec db psql -U career -d career_copilot \
 
 ---
 
-## 7. リセット
+## 8. リセット
 
 ```bash
 # DynamoDB / MailHog の中身だけ捨てる
