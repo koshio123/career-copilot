@@ -3,9 +3,11 @@ name: frontend
 on:
   push:
     branches: [main]
-    paths: ["frontend/**", ".github/workflows/frontend.yml"]
+    paths:
+      ["frontend/**", "backend/openapi.json", ".github/workflows/frontend.yml"]
   pull_request:
-    paths: ["frontend/**", ".github/workflows/frontend.yml"]
+    paths:
+      ["frontend/**", "backend/openapi.json", ".github/workflows/frontend.yml"]
 
 defaults:
   run:
@@ -32,6 +34,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: API types in sync with backend/openapi.json
+        run: |
+          pnpm run gen:api
+          git diff --exit-code src/api/schema.ts
+
       - name: ESLint
         run: pnpm run lint
 
@@ -46,3 +53,25 @@ jobs:
 
       - name: Production build
         run: pnpm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

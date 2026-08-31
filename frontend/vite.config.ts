@@ -1,9 +1,10 @@
 /// <reference types="vitest/config" />
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     port: 3000,
     // Same-origin API in dev: forward /api to the FastAPI server. In production
@@ -17,5 +18,6 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/setupTests.ts'],
     css: false,
+    exclude: ['e2e/**', 'node_modules/**'],
   },
 })

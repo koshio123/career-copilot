@@ -95,6 +95,8 @@ error cases, inspecting DynamoDB/MailHog): `docs/manual-testing.md`.
 | `make migrate` | apply DB migrations |
 | `make migration m="..."` | autogenerate a migration |
 | `make check-migrations` | fail if models and migrations have drifted |
+| `make openapi` | regenerate `backend/openapi.json` + frontend API types |
 | `make seed` | load a minimal dev dataset |
+| `cd frontend && pnpm e2e` | Playwright end-to-end tests |
 | `make worker` | run the async worker loop locally (Phase 04+) |
 | `make help` | list all targets |

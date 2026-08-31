@@ -112,14 +112,14 @@
 
 **Goal**: 認証済みで画面遷移でき、API と型付きでつながる SPA の骨格。
 
-- [ ] ルーティング：React Router の構成、認証ガード、共通レイアウト
-- [ ] API クライアント：`openapi-fetch` + 生成型、Cookie 認証（credentials: include）、同一オリジン配信（CloudFront が `/api/*` を API Gateway、それ以外を S3 SPA へ）、エラーハンドリング共通化
-- [ ] 認証フロー：ログイン / サインアップ / セッション更新 / 保護ルート
-- [ ] UI 基盤：Phase 00 で決めたコンポーネント方針・状態管理・データ取得（TanStack Query）・フォーム（RHF + zod）の実装
-- [ ] テスト：vitest + Testing Library、Playwright で主要フローの E2E
-- [ ] エラー可観測性：フロント・バックエンドのアプリエラー追跡（Sentry 等）
+- [x] ルーティング：React Router v7（library モード）。`ProtectedRoute`（未認証は `from` 付きで `/login` へ）+ `AppLayout`（ヘッダにメール / サインアウト）。`App.tsx` にルート定義
+- [x] API クライアント：`openapi-fetch` + 生成型（`backend/openapi.json` を commit、`make openapi` / CI drift check）、`credentials: 'include'`、CSRF ミドルウェア（`cc_csrf` cookie → `x-csrf-token`）、`unwrap()` で Problem Details → `ApiError`
+- [x] 認証フロー：`useMe` / `useRequestOtp` / `useVerifyOtp` / `useLogout`（`src/auth/hooks.ts`）。ログイン=サインアップ（初回 verify で作成、ADR-0010）。セッション更新はサーバ側スライディング + `useMe` staleTime
+- [x] UI 基盤（ADR-0011）：Tailwind v4（`@tailwindcss/vite`）+ 手製コンポーネント（`src/components/ui.tsx`）、TanStack Query v5、RHF + zod。2 段ログインフォーム（email → 6桁）
+- [x] テスト：vitest + Testing Library（`LoginPage.test.tsx`）、Playwright（`e2e/login.spec.ts`、API を `page.route` でモック）でサインイン / サインアウト全体。CI に `e2e` ジョブ追加
+- [x] エラー可観測性：`@sentry/react`（`VITE_SENTRY_DSN` 未設定なら no-op）。バックエンドの Sentry / DSN 設定は Phase 10
 
-**Done**: ログイン → 保護画面表示 → API 取得 → ログアウト がブラウザで通り、E2E がある。
+**Done**: ログイン → 保護画面 → `/me` → ログアウト が Playwright E2E で通過。実バックエンド + Vite proxy の疎通も確認。
 
 ---
 

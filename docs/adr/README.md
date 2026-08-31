@@ -24,3 +24,4 @@ rationale. Format: [MADR](https://adr.github.io/madr/)-lite.
 | [0008](0008-frontend-react-spa.md) | Frontend as a React SPA (Vite) | Accepted |
 | [0009](0009-data-model-and-job-dedup.md) | Data model shape and job deduplication | Accepted |
 | [0010](0010-auth-email-otp-and-sessions.md) | Authentication via email OTP and server-side sessions | Accepted |
+| [0011](0011-frontend-ui-stack.md) | Frontend UI and data stack | Accepted |
