@@ -8,9 +8,7 @@ const BaseRequest = globalThis.Request
 class RelativeAwareRequest extends BaseRequest {
   constructor(input: RequestInfo | URL, init?: RequestInit) {
     super(
-      typeof input === 'string' && input.startsWith('/')
-        ? `http://localhost:3000${input}`
-        : input,
+      typeof input === 'string' && input.startsWith('/') ? `http://localhost:3000${input}` : input,
       init,
     )
   }
