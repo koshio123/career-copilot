@@ -58,6 +58,19 @@ class Settings(BaseSettings):
     smtp_host: str = "localhost"
     smtp_port: int = 1025
 
+    # --- async workers / queues (Phase 04) ---
+    sqs_default_queue_url: str | None = None  # short jobs (LLM, analysis) -> Lambda
+    sqs_browser_queue_url: str | None = None  # Playwright crawls -> Fargate
+    worker_poll_wait_seconds: int = 20  # SQS long poll
+    worker_batch_size: int = 10
+    worker_visibility_timeout: int = 120
+
+    # --- LLM (Phase 04) ---
+    anthropic_api_key: str | None = None
+    llm_model: str = "claude-sonnet-5"
+    llm_max_retries: int = 3
+    llm_timeout_seconds: float = 60.0
+
     @property
     def is_local(self) -> bool:
         return self.env == "local"

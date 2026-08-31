@@ -55,6 +55,12 @@ class RateLimitedError(AppError):
     title = "Too Many Requests"
 
 
+class ServiceUnavailableError(AppError):
+    status = 503
+    code = "service-unavailable"
+    title = "Service Unavailable"
+
+
 class ValidationError(AppError):
     status = 422
     code = "validation-error"

@@ -33,3 +33,8 @@ def dynamodb_resource() -> Any:
 @lru_cache
 def ses_client() -> Any:
     return boto3.client("ses", **_client_kwargs())
+
+
+@lru_cache
+def sqs_client() -> Any:
+    return boto3.client("sqs", **_client_kwargs())
