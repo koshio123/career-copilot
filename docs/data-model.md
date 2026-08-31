@@ -35,7 +35,7 @@ erDiagram
 
 | table | purpose | key columns |
 |---|---|---|
-| `users` | account | `email` (unique), `password_hash` (argon2), `email_verified_at` |
+| `users` | account (passwordless — email OTP, ADR-0010) | `email` (unique), `email_verified_at`, `display_name` |
 | `job_preferences` | one per user | `desired_roles[]`, `locations[]`, `employment_types[]`, `salary_min/max`, `remote_required`, `target_start` |
 
 ### Résumés

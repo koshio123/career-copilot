@@ -6,20 +6,20 @@ requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
-    "pydantic>=2.9",
+    "pydantic[email]>=2.9",
     "pydantic-settings>=2.6",
     "sqlalchemy[asyncio]>=2.0.36",
     "asyncpg>=0.30",
     "alembic>=1.14",
-    "argon2-cffi>=23.1",
     "structlog>=24.4",
     "httpx>=0.28",
+    "boto3>=1.35",       # DynamoDB (sessions / OTP / rate limits) + SES
+    "aiosmtplib>=3.0",   # async SMTP for local mail delivery
 ]
 
 [project.optional-dependencies]
 # Async worker runtime (Phase 04+). Kept out of the API image.
 worker = [
-    "boto3>=1.35",
     "trafilatura>=2.0",
     "selectolax>=0.3.25",
     "protego>=0.3",
@@ -37,6 +37,8 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
+    "moto[dynamodb]>=5.0",
+    "boto3-stubs[dynamodb]>=1.35",
 ]
 
 [tool.uv]
@@ -58,6 +60,8 @@ known-first-party = ["app"]
 [tool.ruff.lint.per-file-ignores]
 # Alembic revisions are generated; keep them formatted but don't nitpick.
 "alembic/versions/*.py" = ["E501"]
+# conftest sets test env vars before importing app modules that read settings.
+"tests/conftest.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.13"
@@ -75,6 +79,12 @@ ignore_missing_imports = true
 module = ["alembic.env"]
 disallow_untyped_calls = false
 warn_return_any = false
+
+[[tool.mypy.overrides]]
+# boto3 resources/clients are effectively untyped at the call sites we use.
+module = ["app.core.aws"]
+warn_return_any = false
+disallow_any_explicit = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

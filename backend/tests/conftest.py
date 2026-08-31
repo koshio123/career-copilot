@@ -32,17 +32,36 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncGenerator
 
 import pytest
+
+# Test environment — set before any app module reads settings.
+os.environ.setdefault("APP_AWS_ENDPOINT_URL", "")  # use moto, not LocalStack
+os.environ.setdefault("APP_DYNAMODB_TABLE_PREFIX", "test")
+os.environ.setdefault("APP_SECRET_KEY", "test-secret")
+os.environ.setdefault("APP_EMAIL_BACKEND", "console")
+
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import NullPool
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
+from app.api.deps import get_db
+from app.auth.otp import get_otp_store
+from app.auth.ratelimit import get_rate_limiter
+from app.auth.sessions import get_session_store
 from app.core.config import get_settings
 from app.db.base import Base
+from app.email import get_email_sender
 from app.main import app
+from tests.fakes import (
+    FakeEmailSender,
+    InMemoryOtpStore,
+    InMemoryRateLimiter,
+    InMemorySessionStore,
+)
 
 
 def _test_database_url() -> str:
@@ -81,7 +100,44 @@ async def db(engine: AsyncEngine) -> AsyncGenerator[AsyncSession]:
 
 
 @pytest.fixture
-async def client() -> AsyncGenerator[AsyncClient]:
+def sessions() -> InMemorySessionStore:
+    return InMemorySessionStore()
+
+
+@pytest.fixture
+def otp() -> InMemoryOtpStore:
+    return InMemoryOtpStore()
+
+
+@pytest.fixture
+def rate_limiter() -> InMemoryRateLimiter:
+    return InMemoryRateLimiter()
+
+
+@pytest.fixture
+def email() -> FakeEmailSender:
+    return FakeEmailSender()
+
+
+@pytest.fixture
+async def client(
+    db: AsyncSession,
+    sessions: InMemorySessionStore,
+    otp: InMemoryOtpStore,
+    rate_limiter: InMemoryRateLimiter,
+    email: FakeEmailSender,
+) -> AsyncGenerator[AsyncClient]:
+    async def _db() -> AsyncGenerator[AsyncSession]:
+        yield db
+
+    app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[get_session_store] = lambda: sessions
+    app.dependency_overrides[get_otp_store] = lambda: otp
+    app.dependency_overrides[get_rate_limiter] = lambda: rate_limiter
+    app.dependency_overrides[get_email_sender] = lambda: email
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+    app.dependency_overrides.clear()

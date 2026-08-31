@@ -50,8 +50,10 @@ cp backend/.env.example backend/.env
 ### Every time — run the app
 
 ```bash
-# terminal 1 — local infra (Postgres :5433 + LocalStack :4566), runs in background
+# terminal 1 — local infra, runs in background
+#   Postgres :5433 · LocalStack (SQS/S3/DynamoDB) :4566 · MailHog :1025 (UI :8025)
 make up
+make migrate            # apply DB migrations
 
 # terminal 2 — API on http://localhost:8000
 make api
@@ -62,6 +64,10 @@ make web
 
 Then open <http://localhost:3000>. Stop: `Ctrl-C` in terminals 2 and 3, then
 `make down`.
+
+Sign-in is a 6-digit email code (ADR-0010). Locally `APP_EMAIL_BACKEND=console`
+prints the code to the API log; set it to `smtp` to see mails at
+<http://localhost:8025>.
 
 Local Postgres uses host port **5433** because this machine runs a native
 PostgreSQL on 5432.
@@ -77,7 +83,8 @@ make fmt     # auto-format both sides
 Optionally: `uvx pre-commit install` to run the same checks on commit.
 
 Detailed test instructions (filters, coverage, DB-backed tests, the no-Docker
-fallback): `docs/local-testing.md`.
+fallback): `docs/local-testing.md`. Driving the running app by hand (auth flow,
+error cases, inspecting DynamoDB/MailHog): `docs/manual-testing.md`.
 
 ## Common tasks
 
@@ -85,6 +92,9 @@ fallback): `docs/local-testing.md`.
 |---|---|
 | `make up` / `make down` | start / stop local infra |
 | `make api` / `make web` | run the API / the SPA dev server |
-| `make migrate` | apply DB migrations (Phase 01+) |
+| `make migrate` | apply DB migrations |
+| `make migration m="..."` | autogenerate a migration |
+| `make check-migrations` | fail if models and migrations have drifted |
+| `make seed` | load a minimal dev dataset |
 | `make worker` | run the async worker loop locally (Phase 04+) |
 | `make help` | list all targets |

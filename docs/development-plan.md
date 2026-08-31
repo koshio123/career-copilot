@@ -91,19 +91,20 @@
 
 **Goal**: 認証・設定・テスト・可観測性を備えた FastAPI の土台。
 
-- [ ] レイヤー構成：`api → services → repositories → models`。`pydantic-settings` で設定管理
-- [ ] 非同期 DB：SQLAlchemy 2.0 + asyncpg、セッション / Unit of Work、Alembic 連携
-- [ ] 認証（ADR-0010）：**email 6桁 OTP**（10分 TTL / hash 保存 / 5回失敗で無効 / email・IP レート制限 / 列挙対策で常に 202 / `otp_challenge` cookie でブラウザ bind）。opaque セッショントークンを httpOnly / Secure / SameSite=Lax cookie、サーバ側レコード（hash 保存）、30日スライディング期限。`sessions` / `otp_codes` / `auth_rate_limits` を DynamoDB（on-demand、TTL）に、`SessionStore` / `OtpStore` インタフェース越し。メール送信は SES（ローカルは MailHog / コンソール）。Phase 01 の `users.password_hash` を削除、`argon2-cffi` 除去。パスキー / OAuth は後続
-- [ ] 認可：ユーザーは自分のリソースのみ。リポジトリ基底クラスが `user_id` を必須化（書き忘れを型エラーに）。Postgres RLS は Phase 09 で検討
-- [ ] CSRF：`SameSite=Lax` + JSON のみ受理（form-encoded 拒否）+ 変更系に double-submit トークン。副作用のある GET を作らない
-- [ ] API 規約：`/api/v1` バージョニング、一覧はページネーション規約を統一、エラーレスポンスは Problem Details（RFC 9457）、セキュリティヘッダ
-- [ ] 入力バリデーション：Pydantic で全入力を検証。レート制限（API Gateway スロットリング。アプリ内で足す場合は共有ストア前提。プロセス内 limiter は複数インスタンスで効かない点に注意）
-- [ ] 構造化ログ：JSON（structlog 等）、`request_id`、PII はマスク / ハッシュ
-- [ ] ヘルスチェック：liveness / readiness（DB 疎通）
-- [ ] OpenAPI：自動ドキュメント、フロント向けに `openapi-typescript` で型出力
-- [ ] テスト基盤：pytest、トランザクション分離、factory / fixtures、`httpx.AsyncClient`、カバレッジ閾値
+- [x] レイヤー構成：`api → services → repositories → models`。`app/{api,services,repositories,schemas,auth,email,core}`。設定は `pydantic-settings`（`APP_` 接頭辞、`get_settings()` キャッシュ）
+- [x] 非同期 DB：`app/db/session.py` の engine / sessionmaker、`get_db` 依存（コミット / ロールバック）
+- [x] 認証（ADR-0010）：email 6桁 OTP（`app/auth/otp.py`、10分 TTL / hash 保存 / 5回失敗で無効 / `otp_challenge` cookie で bind / email・IP レート制限）、opaque セッション cookie（`app/auth/sessions.py`、httpOnly / Secure / SameSite=Lax / hash 保存 / 30日スライディング）、`SessionStore` / `OtpStore` / `RateLimiter` Protocol + DynamoDB 実装（`sessions` / `otp` / `ratelimit` 3テーブル、`ensure_tables()` はローカル / テストのみ）。メールは `app/email/`（console / smtp=MailHog / ses）。`users.password_hash` 削除（migration `82f81acdbc8b`）、`argon2-cffi` 除去
+- [x] 認可：`UserScopedRepository` 基底（`_scoped()` が常に `model.user_id == 現ユーザー` を付与）。`UserRepository` は identity 用。RLS は Phase 09
+- [x] CSRF：`SameSite=Lax` + JSON のみ + `require_csrf` 依存（double-submit、`cc_csrf` cookie を JS 可読で発行）
+- [x] API 規約：`/api/v1` プレフィックス、エラーは Problem Details（RFC 9457、`application/problem+json` + `code`）、`SecurityHeadersMiddleware`（API は CSP `default-src 'none'`、`/docs` `/redoc` は Swagger 用に緩和、nosniff / DENY / Referrer-Policy）
+- [ ] ページネーション規約：最初の一覧エンドポイント（Phase 05）で導入
+- [x] 入力バリデーション：Pydantic スキーマ（`OtpRequestIn` は `EmailStr`、`OtpVerifyIn.code` は `^\d{6}$`）。レート制限は DynamoDB 固定ウィンドウ（API Gateway が外側の backstop）
+- [x] 構造化ログ：`RequestContextMiddleware` が `request_id` / method / path を contextvars に bind、`X-Request-ID` を返す。`_redact_sensitive` プロセッサが token / code / cookie 等を伏字、email / ip はマスク
+- [x] ヘルスチェック：`/healthz`（liveness）+ `/readyz`（DB `SELECT 1`、失敗時 503）
+- [x] OpenAPI：FastAPI 自動生成（`/openapi.json` `/docs`）。`openapi-typescript` でのフロント型出力は Phase 03
+- [x] テスト基盤：`conftest.py` に in-memory の fake ストア（`tests/fakes.py`）+ `dependency_overrides` で `client` を組む。auth E2E（`test_auth.py`）+ 実 DynamoDB を moto で（`test_auth_stores.py`）+ middleware / CSP（`test_middleware.py`）。CI に `--cov-fail-under=80`（現在 89%）
 
-**Done**: OTP 要求 → コード検証 → セッション cookie 発行 → 保護リソース取得 → ログアウト の E2E テストが通り、OpenAPI が出力される。
+**Done**: OTP 要求 → コード検証 → セッション cookie 発行 → `/me` → ログアウト の E2E テスト通過（`make test`）。LocalStack DynamoDB 相手の `curl` 疎通も確認（`docs/manual-testing.md`）。
 
 ---
 

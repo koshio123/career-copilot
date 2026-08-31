@@ -6,8 +6,8 @@ Idempotent: does nothing if the dev user already exists.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
-from argon2 import PasswordHasher
 from sqlalchemy import select
 
 from app.db.session import get_engine, get_sessionmaker
@@ -29,8 +29,8 @@ async def seed() -> None:
 
         user = User(
             email=DEV_EMAIL,
-            password_hash=PasswordHasher().hash("devpassword"),
             display_name="Dev User",
+            email_verified_at=datetime.now(UTC),
         )
         user.preferences = JobPreference(
             desired_roles=["Backend Engineer", "Platform Engineer"],

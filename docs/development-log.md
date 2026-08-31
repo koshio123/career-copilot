@@ -5,6 +5,91 @@ phase. The roadmap is `development-plan.md`; decisions are in `adr/`.
 
 ---
 
+## 2026-08-31 — Phase 02: Backend API foundation
+
+Branch: `phase-02-api`.
+
+### Goal
+
+A FastAPI base with auth, config, error handling, observability, and test infra.
+
+### What was built
+
+**Layout** — `app/{api,services,repositories,schemas,auth,email,core}`. Request
+flow: `api → services → repositories → models`.
+
+**Auth (ADR-0010)** — email 6-digit OTP, no passwords.
+
+- `app/auth/tokens.py` — random token / OTP generation, SHA-256 hashing,
+  keyed email hash, constant-time compare.
+- `app/auth/otp.py` / `sessions.py` / `ratelimit.py` — `Protocol` interfaces +
+  DynamoDB implementations. Sessions: opaque 256-bit token, only its hash stored,
+  30-day sliding expiry (write throttled), `user_id-index` GSI for listing.
+  OTP: 10-min TTL, hash stored, `challenge_hash` binds the ceremony to one
+  browser, 5-attempt cap. Rate limiter: fixed-window counter with TTL.
+- `app/auth/dynamo.py` — table specs + `ensure_tables()` (local/tests only;
+  Terraform owns them in the cloud, Phase 10). All three use `expires_at` TTL.
+- `app/services/auth.py` — request → email code (rate-limited, always 202);
+  verify → get-or-create verified user + session + CSRF token.
+- `app/email/` — `console` (default) / `smtp` (MailHog) / `ses` senders.
+- Endpoints: `POST /api/v1/auth/otp/{request,verify}`, `/auth/logout`,
+  `GET|DELETE /auth/sessions`, `GET /api/v1/me`.
+
+**Cross-cutting**
+
+- `app/core/errors.py` — RFC 9457 Problem Details for every error path
+  (`application/problem+json` + stable `code`); handlers for `AppError`,
+  validation, HTTP, and unhandled.
+- `app/core/middleware.py` — `RequestContextMiddleware` (request id → structlog
+  contextvars + `X-Request-ID`), `SecurityHeadersMiddleware` (nosniff, DENY,
+  Referrer-Policy; CSP `default-src 'none'` for the JSON API, relaxed for
+  `/docs` + `/redoc` so Swagger UI's jsdelivr assets + inline bootstrap load).
+- `app/core/logging.py` — `_redact_sensitive` processor (token/code/cookie →
+  `***`, email/ip masked).
+- `app/api/deps.py` — `get_db`, `get_current_session` / `get_current_user`,
+  `require_csrf` (double-submit).
+- `app/api/health.py` — `/readyz` adds a DB `SELECT 1` (503 on failure).
+- `app/repositories/base.py` — `UserScopedRepository._scoped()` always applies
+  the ownership filter.
+
+**Schema** — migration `82f81acdbc8b` drops `users.password_hash`; `argon2-cffi`
+removed; `boto3` + `aiosmtplib` + `pydantic[email]` added; `moto[dynamodb]` +
+`boto3-stubs[dynamodb]` dev deps.
+
+**Local infra** — `docker-compose` gains LocalStack `dynamodb` and a MailHog
+service (SMTP :1025, UI :8025). `.env.example` documents the new `APP_*` vars.
+
+**Tests** — `tests/fakes.py` (in-memory stores + capturing email sender) wired
+into `client` via `dependency_overrides`; `test_auth.py` drives the full HTTP
+flow; `test_auth_stores.py` exercises the real DynamoDB code against `moto`;
+`test_middleware.py` locks the CSP split and request-id echo. CI enforces
+`--cov-fail-under=80` (currently 89%). `docs/manual-testing.md` covers driving
+the running app by hand.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `make lint` | ruff + mypy strict (53 files) ✓ ; eslint + tsc ✓ |
+| `make test` | pytest 19 ✓ ; vitest 1 ✓ ; coverage 89% |
+| `make check-migrations` | no drift |
+| end-to-end | `curl` OTP request → verify → `/me` → logout against LocalStack DynamoDB; user persisted; Problem Details + security headers confirmed |
+
+### Deviations from `development-plan.md`
+
+- Pagination helper deferred to the first list endpoint (Phase 05) — nothing to
+  paginate yet.
+- `openapi-typescript` type generation belongs to the frontend (Phase 03).
+
+### Follow-ups
+
+- Passkeys (WebAuthn) and Google/LinkedIn OAuth are additive later phases.
+- SES domain/DKIM setup and `email_backend=ses` config land in Phase 10.
+- A Lambda authorizer at API Gateway (cache session checks) is a possible
+  optimisation, not needed now.
+
+---
+
 ## 2026-08-31 — Phase 01: Domain model & DB schema
 
 Branch: `phase-01-schema`.

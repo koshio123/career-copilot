@@ -19,8 +19,8 @@ if TYPE_CHECKING:
 class User(UUIDPrimaryKey, Timestamps, Base):
     __tablename__ = "users"
 
+    # Auth is passwordless (email OTP — ADR-0010); no password_hash.
     email: Mapped[str] = mapped_column(String(320), unique=True)
-    password_hash: Mapped[str] = mapped_column(Text)
     email_verified_at: Mapped[TZDateTime | None] = mapped_column()
     display_name: Mapped[str | None] = mapped_column(String(120))
 

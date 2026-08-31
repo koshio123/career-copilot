@@ -47,7 +47,7 @@ def test_metadata_has_the_expected_tables() -> None:
 
 
 async def test_full_domain_round_trip(db: AsyncSession) -> None:
-    user = User(email="dev@example.com", password_hash="argon2$dummy")
+    user = User(email="dev@example.com")
     user.preferences = JobPreference(desired_roles=["Backend Engineer"], remote_required=True)
     resume = Resume(user=user)
     resume.versions.append(
@@ -124,7 +124,7 @@ async def test_full_domain_round_trip(db: AsyncSession) -> None:
 
 
 async def test_cascade_delete_removes_user_graph(db: AsyncSession) -> None:
-    user = User(email="cascade@example.com", password_hash="x")
+    user = User(email="cascade@example.com")
     posting = JobPosting(
         user=user,
         dedup_key="k",
