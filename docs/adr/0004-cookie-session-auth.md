@@ -1,7 +1,12 @@
 # ADR-0004: Authentication via httpOnly cookie sessions
 
-- Status: Accepted
+- Status: Superseded by [ADR-0010](0010-auth-email-otp-and-sessions.md)
 - Date: 2026-08-30
+
+> Superseded before implementation. The opaque-token / httpOnly-cookie / DynamoDB
+> session design and the same-origin + CSRF reasoning **carry forward**; ADR-0010
+> replaces the email + password first factor with **email 6-digit OTP** (no
+> passwords).
 
 ## Context
 

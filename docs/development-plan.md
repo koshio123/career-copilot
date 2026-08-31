@@ -21,7 +21,7 @@
 |---|---|---|
 | バックエンド | FastAPI + SQLAlchemy 2.0 (async) + asyncpg + Alembic | 仕様指定。I/O（LLM・HTTP）が支配的なので async が有利。 |
 | API ホスティング | **Lambda + API Gateway**（Lambda Web Adapter か Mangum）から開始 | 個人利用ではアイドルコストがほぼゼロ。持続的トラフィックや常時接続が必要になったら ECS Fargate + ALB へ。 |
-| 認証 | アプリ実装。**opaque セッショントークンを httpOnly / Secure / SameSite=Lax cookie** で発行、セッションは DynamoDB（TTL）に保存、変更系リクエストに CSRF 対策 | JS から触れるストレージに JWT を置かない。Cognito（仕様の代替案）は個人利用では過剰。 |
+| 認証 | アプリ実装。**第一要素は email 6桁 OTP（パスワードなし）**、**opaque セッショントークンを httpOnly / Secure / SameSite=Lax cookie** で発行、セッション・OTP は DynamoDB（TTL）に保存、変更系に double-submit CSRF。パスキー / OAuth は後続で加算 | パスワードは実装最大のセキュリティ負債。この種のプロダクトではパスワードレスが既定。JS 触れるストレージに JWT を置かない。ADR-0010（ADR-0004 を supersede）。 |
 | キュー | SQS（+ DLQ） | 仕様指定。無料枠内。 |
 | 非同期ワーカー | 短時間ジョブ（LLM 構造化・分析）＝ **Lambda**、ブラウザ/クロール（Playwright、15 分超の可能性）＝ **Fargate ワーカー** | ジョブ種別で分割。Playwright は Lambda パッケージングが苦しいので Fargate のコンテナで動かす。 |
 | 定期実行 | **単一ディスパッチャ**：EventBridge Scheduler → Lambda が「取得期限が来た `job_sources`」を SQS に投入 | ソースごとに EventBridge ルールを作らない（数が増えると管理不能）。 |
@@ -30,7 +30,7 @@
 | フロント状態・取得 | TanStack Query、フォームは React Hook Form + zod、API クライアントは `openapi-typescript` + `openapi-fetch` で型生成 | 標準的で軽量。 |
 | IaC | Terraform | 仕様指定（CDK も可）。 |
 | シークレット | **SSM Parameter Store（SecureString）** から開始 | 個人利用では無料。ローテーションや複数環境が要るようになったら Secrets Manager へ。 |
-| ローカル開発 | `docker-compose`（Postgres + LocalStack で SQS/S3）。ワーカーは本番と同じハンドラ関数をプロセスで回す。テストは `moto` | ローカルで実 Lambda を再現しない（個人開発には過剰）。 |
+| ローカル開発 | `docker-compose`（Postgres + LocalStack で SQS / S3 / DynamoDB、メールは MailHog）。ワーカーは本番と同じハンドラ関数をプロセスで回す。テストは `moto` | ローカルで実 Lambda を再現しない（個人開発には過剰）。 |
 | Python ツール | `uv` / Ruff（lint + format）/ mypy strict / pytest | 現行の標準。 |
 
 ---
@@ -91,18 +91,20 @@
 
 **Goal**: 認証・設定・テスト・可観測性を備えた FastAPI の土台。
 
-- [ ] レイヤー構成：`api → services → repositories → models`。`pydantic-settings` で設定管理
-- [ ] 非同期 DB：SQLAlchemy 2.0 + asyncpg、セッション / Unit of Work、Alembic 連携
-- [ ] 認証：opaque セッショントークンを httpOnly / Secure / SameSite=Lax cookie で発行、セッションは DynamoDB（TTL）保存、パスワードは argon2、メール登録 + 検証、変更系に CSRF 対策。OAuth（Google / LinkedIn）は後続
-- [ ] 認可：ユーザーは自分のリソースのみ（行レベルのアクセス制御を共通化）
-- [ ] API 規約：`/api/v1` バージョニング、一覧はページネーション規約を統一、エラーレスポンスは Problem Details（RFC 9457）、セキュリティヘッダ
-- [ ] 入力バリデーション：Pydantic で全入力を検証。レート制限（API Gateway スロットリング。アプリ内で足す場合は共有ストア前提。プロセス内 limiter は複数インスタンスで効かない点に注意）
-- [ ] 構造化ログ：JSON（structlog 等）、`request_id`、PII はマスク / ハッシュ
-- [ ] ヘルスチェック：liveness / readiness（DB 疎通）
-- [ ] OpenAPI：自動ドキュメント、フロント向けに `openapi-typescript` で型出力
-- [ ] テスト基盤：pytest、トランザクション分離、factory / fixtures、`httpx.AsyncClient`、カバレッジ閾値
+- [x] レイヤー構成：`api → services → repositories → models`。`app/{api,services,repositories,schemas,auth,email,core}`。設定は `pydantic-settings`（`APP_` 接頭辞、`get_settings()` キャッシュ）
+- [x] 非同期 DB：`app/db/session.py` の engine / sessionmaker、`get_db` 依存（コミット / ロールバック）
+- [x] 認証（ADR-0010）：email 6桁 OTP（`app/auth/otp.py`、10分 TTL / hash 保存 / 5回失敗で無効 / `otp_challenge` cookie で bind / email・IP レート制限）、opaque セッション cookie（`app/auth/sessions.py`、httpOnly / Secure / SameSite=Lax / hash 保存 / 30日スライディング）、`SessionStore` / `OtpStore` / `RateLimiter` Protocol + DynamoDB 実装（`sessions` / `otp` / `ratelimit` 3テーブル、`ensure_tables()` はローカル / テストのみ）。メールは `app/email/`（console / smtp=MailHog / ses）。`users.password_hash` 削除（migration `82f81acdbc8b`）、`argon2-cffi` 除去
+- [x] 認可：`UserScopedRepository` 基底（`_scoped()` が常に `model.user_id == 現ユーザー` を付与）。`UserRepository` は identity 用。RLS は Phase 09
+- [x] CSRF：`SameSite=Lax` + JSON のみ + `require_csrf` 依存（double-submit、`cc_csrf` cookie を JS 可読で発行）
+- [x] API 規約：`/api/v1` プレフィックス、エラーは Problem Details（RFC 9457、`application/problem+json` + `code`）、`SecurityHeadersMiddleware`（API は CSP `default-src 'none'`、`/docs` `/redoc` は Swagger 用に緩和、nosniff / DENY / Referrer-Policy）
+- [ ] ページネーション規約：最初の一覧エンドポイント（Phase 05）で導入
+- [x] 入力バリデーション：Pydantic スキーマ（`OtpRequestIn` は `EmailStr`、`OtpVerifyIn.code` は `^\d{6}$`）。レート制限は DynamoDB 固定ウィンドウ（API Gateway が外側の backstop）
+- [x] 構造化ログ：`RequestContextMiddleware` が `request_id` / method / path を contextvars に bind、`X-Request-ID` を返す。`_redact_sensitive` プロセッサが token / code / cookie 等を伏字、email / ip はマスク
+- [x] ヘルスチェック：`/healthz`（liveness）+ `/readyz`（DB `SELECT 1`、失敗時 503）
+- [x] OpenAPI：FastAPI 自動生成（`/openapi.json` `/docs`）。`openapi-typescript` でのフロント型出力は Phase 03
+- [x] テスト基盤：`conftest.py` に in-memory の fake ストア（`tests/fakes.py`）+ `dependency_overrides` で `client` を組む。auth E2E（`test_auth.py`）+ 実 DynamoDB を moto で（`test_auth_stores.py`）+ middleware / CSP（`test_middleware.py`）。CI に `--cov-fail-under=80`（現在 89%）
 
-**Done**: 登録 → ログイン → 保護リソース取得の E2E テストが通り、OpenAPI が出力される。
+**Done**: OTP 要求 → コード検証 → セッション cookie 発行 → `/me` → ログアウト の E2E テスト通過（`make test`）。LocalStack DynamoDB 相手の `curl` 疎通も確認（`docs/manual-testing.md`）。
 
 ---
 
@@ -225,7 +227,7 @@
 
 **Goal**: まず dev 単一環境を Terraform で再現可能にし、CI/CD で自動デプロイする。prod 分離は一般公開時。
 
-- [ ] Terraform モジュール：`network`(VPC) / `database`(RDS PostgreSQL) / `queue`(SQS + DLQ) / `api`(Lambda + API Gateway) / `workers`(Lambda + Fargate サービス + イベントソースマッピング) / `storage`(S3) / `frontend`(S3 + CloudFront、`/api/*` を API Gateway へ) / `scheduler`(EventBridge Scheduler → ディスパッチャ Lambda) / `sessions`(DynamoDB)
+- [ ] Terraform モジュール：`network`(VPC) / `database`(RDS PostgreSQL) / `queue`(SQS + DLQ) / `api`(Lambda + API Gateway) / `workers`(Lambda + Fargate サービス + イベントソースマッピング) / `storage`(S3) / `frontend`(S3 + CloudFront、`/api/*` を API Gateway へ) / `scheduler`(EventBridge Scheduler → ディスパッチャ Lambda) / `auth`(DynamoDB: sessions / otp_codes / auth_rate_limits) / `email`(SES: ドメイン検証 + DKIM)
 - [ ] 環境：当面 dev のみ。state は S3 backend（`backend.hcl`）、`tfvars.example`
 - [ ] シークレット：SSM Parameter Store（SecureString）に LLM API キー、DB 認証情報、セッション署名鍵
 - [ ] CI/CD：test → build（backend / worker イメージ、frontend）→ ECR push → マイグレーション（ワンショットタスク）→ デプロイ → スモークテスト

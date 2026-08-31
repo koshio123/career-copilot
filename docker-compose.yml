@@ -22,12 +22,19 @@ services:
   localstack:
     image: localstack/localstack:3
     environment:
-      SERVICES: sqs,s3
+      SERVICES: sqs,s3,dynamodb
       DEBUG: "0"
     ports:
       - "4566:4566"
     volumes:
       - localstack:/var/lib/localstack
+
+  # Local SMTP sink — OTP emails land here, view at http://localhost:8025
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025"
+      - "8025:8025"
 
 volumes:
   pgdata:
