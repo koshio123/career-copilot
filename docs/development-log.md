@@ -5,6 +5,81 @@ phase. The roadmap is `development-plan.md`; decisions are in `adr/`.
 
 ---
 
+## 2026-08-31 — Phase 01: Domain model & DB schema
+
+Branch: `phase-01-schema`.
+
+### Goal
+
+A schema that deduplicates jobs from multiple sources and protects sensitive
+data, with a reversible baseline migration.
+
+### What was built
+
+**SQLAlchemy foundation** (`app/db/`)
+
+- `base.py` — `Base(DeclarativeBase)` with a fixed constraint **naming
+  convention** (stable Alembic autogenerate), `UUIDPrimaryKey` /`Timestamps`
+  mixins, `TZDateTime` / `JsonDict` reusable column annotations.
+- `session.py` — async engine (`pool_pre_ping`), `async_sessionmaker`
+  (`expire_on_commit=False`), `get_session` request dependency.
+
+**11 models** (`app/models/`, one file per aggregate)
+
+- `user` (User, JobPreference), `resume` (Resume, ResumeVersion), `job`
+  (JobSource, Job, JobPosting), `application` (Application, ApplicationEvent),
+  `analysis` (AnalysisResult), `llm` (LlmUsage).
+- Every domain table has `user_id` (cascade from `users`) + a uni-directional
+  `user` relationship. `jobs` vs `job_postings` split per ADR-0009.
+- `enums.py` — `StrEnum`s stored as plain `VARCHAR` (`native_enum=False`,
+  **no DB CHECK** — it doesn't round-trip through `alembic check`; validation is
+  Python + Pydantic).
+
+**Alembic** — `alembic init -t async`, rewrote `env.py` to be driven by
+`app.core.config` + `Base.metadata` (`compare_type`, `compare_server_default`).
+Baseline `6e90a7ec4ec1_initial_schema`. `upgrade → downgrade base → upgrade`
+round-trips; `alembic check` clean.
+
+**Tests** — `conftest.py` gained a session-scoped `engine` (test DB name forced
+to `*_test`, `create_all`/`drop_all`) and a per-test `db` session in a rolled-back
+transaction (`join_transaction_mode="create_savepoint"`). `pyproject` sets
+`asyncio_default_{fixture,test}_loop_scope = "session"` so engine and tests share
+one loop. `test_models.py`: metadata table set, full domain round-trip, cascade
+delete.
+
+**Tooling** — `make migration` / `check-migrations` / `seed`; CI backend job runs
+`alembic upgrade/downgrade/upgrade/check`; ruff `per-file-ignores` for
+`alembic/versions`, mypy checks `alembic/env.py` + `scripts/` (excludes
+versions). `scripts/seed.py` — idempotent dev dataset.
+
+**Decisions** — ADR-0009 (data model shape, `jobs`/`job_postings` dedup,
+per-user scoping, JSONB, **pgvector deferred**, no native enums / no CHECK).
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `make lint` | ruff + mypy strict (27 files) ✓; eslint + tsc ✓ |
+| `make test` | pytest 4 ✓; vitest 1 ✓ |
+| `make check-migrations` | `alembic check` → no drift |
+| round-trip | `upgrade → downgrade base → upgrade` ✓ on dev and `_test` DBs |
+| `make seed` | dev user created; re-run is a no-op |
+
+### Deviations from `development-plan.md`
+
+- Pulled a slice of Phase 02's "test infra with transaction isolation" forward —
+  Phase 01 needs DB-backed tests to verify the models/migration.
+- Plan said "VARCHAR + CHECK" for enums; ended up plain VARCHAR (CHECK doesn't
+  survive `alembic check`). ADR-0009 updated.
+
+### Follow-ups
+
+- Pydantic schemas for the `structured` JSONB shapes land with the endpoints
+  that read/write them (Phase 05+).
+- `readyz` (DB-backed readiness) is Phase 02.
+
+---
+
 ## 2026-08-30 — Phase 00: Foundation and workflow
 
 Branch: `phase-00-foundation`.

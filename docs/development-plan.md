@@ -73,16 +73,17 @@
 
 **Goal**: 複数ソースの求人を名寄せでき、機微データを守れるスキーマを固める。
 
-- [ ] エンティティ設計：`users` `job_preferences` `resumes` `resume_versions` `job_sources` `jobs` `job_postings`（名寄せ）`applications` `application_events` `analysis_results` `llm_usage`
-- [ ] 共通求人スキーマ：`source_type`(`ats`/`json_ld`/`llm`)、`ats_vendor`、`raw_text_hash`、`match_score`、`needs_review`、構造化フィールド（職種 / 必須・歓迎スキル / 年収 / 勤務地 / リモート可否 / 雇用形態）
-- [ ] 名寄せ設計：正規化した会社名 + 職種 + 勤務地（+ ATS の external id）でクラスタリング。`jobs` = 取得単位、`job_postings` = 論理求人
-- [ ] `job_sources`：登録 URL、robots 判定結果、スケジュール、最終取得時刻、ソース判定結果（ats_vendor / json_ld / fallback）
-- [ ] 機微データ保護（既定）：RDS 保管時暗号化（KMS）、S3 は SSE-KMS、全経路 TLS、IAM / セキュリティグループを最小化、ログ・LLM プロンプトに PII を出さない、保持期間を短く。**アプリ層のカラム暗号化は既定にしない**（検索・索引・鍵運用のコストが高く、レジュメは常時 LLM で復号処理するため効果が薄い）。特定フィールドに必要と判断したら ADR 化
-- [ ] `pgvector` 検討：マッチ度スコアリングと名寄せで埋め込み検索が要るか。要るなら拡張を初期マイグレーションに含める
-- [ ] Alembic 初期マイグレーション：モデルと一致（`alembic check`）、ロールバック確認
-- [ ] ER 図と seed：`docs/data-model.md` に ER 図、開発用 seed スクリプト
+- [x] エンティティ設計：11 モデルを `backend/app/models/` に（`users` `job_preferences` `resumes` `resume_versions` `job_sources` `jobs` `job_postings` `applications` `application_events` `analysis_results` `llm_usage`）。共通 `Base` + `UUIDPrimaryKey` / `Timestamps` mixin、命名規約固定
+- [x] 共通求人スキーマ：`jobs` / `job_postings` に `source_type`(`ats`/`json_ld`/`llm`)、`ats_vendor`、`raw_text_hash`、`match_score`、`needs_review`。構造化フィールドは `structured` JSONB（スキーマは Pydantic で境界検証）+ 索引が要るものだけカラム昇格
+- [x] 名寄せ設計：`jobs`（取得単位、`(job_source, url/external_id)` で一意）→ `job_postings`（論理求人、`user_id + dedup_key` で一意）。dedup_key = ATS 同一性 or 正規化(会社+職種+勤務地) ハッシュ。ADR-0009
+- [x] `job_sources`：`url`（user 内一意）、`status`、`source_type` / `ats_vendor` / `ats_board_id`、`robots_state` + `robots_checked_at`、`fetch_interval_hours`、`last_fetched_at` / `last_success_at` / `last_error` / `consecutive_failures`
+- [x] 機微データ保護：方針は Phase 09 で実装確認（ADR-0007）。Phase 01 では**アプリ層カラム暗号化を入れない**方針を確定し、`structured` は JSONB のまま
+- [x] `pgvector`：**見送り**（ADR-0009）。決定論的 dedup キー + ルール/LLM スコアリングで MVP は足りる。`jobs`/`job_postings` はスキーマ変更なしで後からベクトル列を追加可能
+- [x] Alembic 初期マイグレーション：async env.py（app 設定・モデル駆動）、`6e90a7ec4ec1_initial_schema`。`alembic upgrade → downgrade base → upgrade` 往復確認、`alembic check` グリーン。CI（backend.yml）+ `make check-migrations` に組込
+- [x] ER 図と seed：`docs/data-model.md`（Mermaid ER 図 + テーブル一覧）、`backend/scripts/seed.py`（冪等、`make seed`）
+- [x] テスト基盤（Phase 02 の前倒し一部）：`conftest.py` にセッションスコープ engine + トランザクション分離の `db` フィクスチャ（`join_transaction_mode="create_savepoint"`）。ドメイン往復 + カスケード削除テスト
 
-**Done**: マイグレーション適用でスキーマ再現・ロールバック可、seed で最小データ投入ができる。
+**Done**: `make migrate` でスキーマ再現・`alembic downgrade base` でロールバック可、`make seed` で最小データ投入（確認済み）。
 
 ---
 
