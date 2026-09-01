@@ -5,6 +5,33 @@ phase. The roadmap is `development-plan.md`; decisions are in `adr/`.
 
 ---
 
+## 2026-09-01 — Phase 06 (part 1): job ingestion foundation
+
+Branch: `phase-06-jobs`. Phase 06 is split in two: **part 1** (this) is the
+fetch foundation — URL registration, SSRF-safe fetching, robots, the scheduler,
+manual entry; **part 2** is classification (routes A/B/C), adapters, diffing,
+filtering, and matching.
+
+### Pre-work — ADRs 0012 and 0013
+
+`development-plan.md` flags open questions #2–#4 to settle before Phase 06.
+Resolved as two proposed ADRs:
+
+- **ADR-0012 (ATS vendor support)** — ship route-A adapters for **Greenhouse,
+  Lever, Ashby** only; defer SmartRecruiters/Workable/Recruitee/Personio to
+  Phase 11; **no** adapter for HERP/HRMOS/Talentio (no documented public API —
+  they go through JSON-LD then LLM fallback). Survey of the seven vendors with
+  authless public APIs is in the ADR.
+- **ADR-0013 (fetch etiquette)** — honour `robots.txt` (via `protego`, cached
+  24h, `Disallow` ⇒ don't fetch, disallowed source ⇒ tell the user); identifying
+  User-Agent with a contact URL, never a spoofed browser UA; 3s min per-host
+  interval (raised by `Crawl-delay`); route-C crawl bounded to same-host /
+  path-prefix, depth 2, 40 pages; honour `Retry-After`; conditional requests;
+  ToS framing = "only pages a user registers for their own search, stored
+  per-user, no evasion of logins/anti-bot".
+
+---
+
 ## 2026-09-01 — Phase 04: Async worker foundation
 
 Branch: `phase-04-workers`.

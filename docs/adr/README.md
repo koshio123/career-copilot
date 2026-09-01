@@ -25,3 +25,5 @@ rationale. Format: [MADR](https://adr.github.io/madr/)-lite.
 | [0009](0009-data-model-and-job-dedup.md) | Data model shape and job deduplication | Accepted |
 | [0010](0010-auth-email-otp-and-sessions.md) | Authentication via email OTP and server-side sessions | Accepted |
 | [0011](0011-frontend-ui-stack.md) | Frontend UI and data stack | Accepted |
+| [0012](0012-ats-vendor-support.md) | ATS vendor support and priority | Proposed |
+| [0013](0013-fetch-etiquette-robots-and-tos.md) | Fetch etiquette: robots.txt, rate limits, and ToS | Proposed |
