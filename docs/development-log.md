@@ -80,6 +80,117 @@ LLM call.
 
 ---
 
+## 2026-09-01 — Phase 05: MVP① résumé registration
+
+Branch: `phase-05-resumes`.
+
+### Goal
+
+Upload a PDF/DOCX or paste text → a structured, editable work history, plus job
+preferences. This is the first API endpoint that enqueues a task.
+
+### What was built
+
+**Storage** (`app/storage/`) — `POST /resumes/uploads` returns a presigned S3 PUT
+URL and a user-scoped key; the browser PUTs the file directly (bytes never touch
+the API/Lambda). `ResumeStorage` also does `head_object` size checks and
+downloads for the worker. `ensure_bucket()` (local, LocalStack) with a CORS rule
+for `localhost:3000`.
+
+**Extraction** (`app/resumes/extract.py`) — `pypdf` / `python-docx`;
+`ExtractionError` (bad file, near-empty text) → the version is marked `failed`.
+
+**Structuring** — one worker task `resume.process`: extract (if a file) → set
+`raw_text` → `LlmClient.structured()` against `RESUME_TOOL_SCHEMA`
+(`app/resumes/schema.py`) → store `structured`, write an `llm_usage` row. Each
+achievement carries `has_metric` and, when false, a `suggestion` for quantifying
+it. LLM outages propagate (queue retry → DLQ); extraction errors are terminal.
+
+**Model** — `resume_versions` gains `status`
+(`pending`/`extracting`/`structuring`/`ready`/`failed`) + `error`
+(migration `6dc8524982a9`). `Timestamps.updated_at` switched to a Python-side
+`onupdate` — a server-side one expires the column after an UPDATE and forces a
+lazy re-fetch that raises `MissingGreenlet` in async handlers.
+
+**API** — `app/api/v1/resumes.py` (`uploads`, create, list, get, get/patch
+version) via `ResumeService` + `ResumeRepository` (user-scoped);
+`app/api/v1/preferences.py` (`GET`/`PUT`, 1:1). The API lifespan now also runs
+`ensure_queues()` + `ensure_bucket()` locally, and `ensure_queues()` writes the
+created URLs back into settings so `get_queue()` enqueues for real instead of the
+`LoggingQueue` fallback.
+
+**Frontend** — `/resumes` (file upload or paste-text), `/resumes/:id` (polls
+while processing, shows the failure or an edit form with the 💡 quantification
+hints), `/preferences`. `AppLayout` gains nav. `openapi-typescript`'s
+default-as-required quirk made `label`/`summary` non-optional in the generated
+types — `ResumeCreateIn.label` is now `str | None`.
+
+**Tests** — backend: `test_storage.py` (moto S3), `test_resume_task.py` (extract
+a real generated DOCX, structure with a fake `LlmClient`, failure + outage
+paths), `test_resumes.py`, `test_preferences.py`. Playwright: upload → poll →
+edit → save, and a preferences round-trip (both API-mocked).
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `make lint` | ruff + mypy (90 files) ✓ ; eslint + tsc ✓ |
+| `make test` | pytest 49 ✓ ; vitest 4 ✓ ; coverage 90% |
+| `pnpm run e2e` | 3 Playwright specs ✓ |
+| `make check-migrations` | no drift |
+| real enqueue | LocalStack: create résumé → `resume.process` picked up by `make worker` (structuring needs a real `APP_ANTHROPIC_API_KEY`) |
+
+### Deviations from `development-plan.md`
+
+- Skill "self-reported vs. extracted" reconciliation is just the editable
+  `skills[]` list for MVP — no separate self-report store.
+- Editing a version updates it in place; new versions are for Phase 07 tailoring.
+- A permanently-bad `APP_ANTHROPIC_API_KEY` leaves a version stuck `structuring`
+  until its message DLQs; a DLQ consumer that marks it `failed` is a later
+  (Phase 08) improvement.
+
+### 2026-09-01 (later) — drag-and-drop upload
+
+The upload box on `/resumes` now also accepts a dropped file, keeping
+click-to-browse and paste-text as they were.
+
+- New `FileDropzone` component (`components/FileDropzone.tsx`): a
+  `role="button"` drop target with `onDragOver/Leave/Drop`, Enter/Space to open
+  the picker, a drag-over highlight, and a visually-hidden `<input type="file">`
+  (kept for the click path and for the e2e `setInputFiles`). `disabled` is
+  honoured for both drop and click.
+- `ResumesPage` does a client-side MIME check before requesting the presigned
+  URL — a non-PDF/DOCX drop shows "Only PDF and DOCX files are accepted." without
+  a round-trip. The server still validates on `POST /resumes/uploads`.
+- `cx` moved from `components/ui.tsx` to `lib/cn.ts` so a component file no
+  longer exports a non-component (`react-refresh/only-export-components`).
+- Tests: `FileDropzone.test.tsx` (drop, hidden-input change, disabled no-op).
+  vitest 7 ✓, eslint/tsc/prettier ✓, 3 Playwright specs still ✓.
+
+### 2026-09-01 (later) — employment dates in the résumé editor
+
+`Company.period_start` / `period_end` were already in `ResumeStructured` and the
+LLM tool schema, but `ResumeDetailPage` only rendered name/role, so a user could
+never see or fill them — a problem when the source text omits dates.
+
+- Editor shows two more fields per company: **Start / End** as native
+  `<input type="month">` pickers (no free text), plus an "I currently work here"
+  checkbox that disables/blanks the End field. `toMonth()` coerces
+  whatever the LLM produced (`2021-4`, `2021-04-01`, …) into the `YYYY-MM` the
+  picker needs; `normalize()` runs it on load, `toPayload()` maps blank → `null`
+  on save so the API stores "unknown" rather than an empty string.
+- No backend change — `VersionUpdateIn` → `ResumeStructured.Company` already
+  accepts both fields as `str | None`.
+- e2e: `READY_STRUCTURED` gains `period_start` (no `period_end`); the spec
+  asserts the start value renders, that "currently work here" is checked,
+  unchecks it, fills the End month, and checks the saved payload. 2 specs ✓,
+  tsc ✓.
+- Also gave the Company/Role inputs real `<Field>` labels (they used
+  placeholders, which vanish once filled) and added an "Achievements" group
+  heading per company card.
+
+---
+
 ## 2026-08-31 — Phase 03: Frontend foundation
 
 Branch: `phase-03-frontend`.

@@ -19,13 +19,17 @@ from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.queue.bootstrap import ensure_queues
+from app.storage.bootstrap import ensure_bucket
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     if settings.is_local:
-        # dev/prod tables are created by Terraform (Phase 10).
+        # dev/prod resources are created by Terraform (Phase 10).
         await ensure_tables()
+        await ensure_queues()
+        await ensure_bucket()
     yield
 
 

@@ -38,3 +38,14 @@ def ses_client() -> Any:
 @lru_cache
 def sqs_client() -> Any:
     return boto3.client("sqs", **_client_kwargs())
+
+
+@lru_cache
+def s3_client() -> Any:
+    kwargs = _client_kwargs()
+    if settings.aws_endpoint_url:
+        # LocalStack: path-style addressing so presigned URLs resolve on localhost.
+        from botocore.config import Config
+
+        kwargs["config"] = Config(s3={"addressing_style": "path"})
+    return boto3.client("s3", **kwargs)

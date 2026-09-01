@@ -5,7 +5,7 @@
 - **API（curl / Swagger）**: health / 認証（email OTP）/ `/me`（Phase 02）→ 章 1〜5
 - **SPA（ブラウザ）**: ログイン画面 → 保護画面 → サインアウト（Phase 03）→ 章 6
 
-章 7（内部状態）・章 8（リセット）は両方で共通。
+章 7（内部状態）・章 10（リセット）は両方で共通。
 
 ---
 
@@ -24,10 +24,10 @@ make migrate                                   # スキーマ適用
 make api        # → http://localhost:8000  （別ターミナル）
 ```
 
-起動時ログに `career-copilot-local-{sessions,otp,ratelimit}` の DynamoDB テーブル作成が出る
+起動時ログに DynamoDB テーブル / SQS キュー / S3 バケットの作成が出る
 （ローカルのみ。dev/prod は Terraform）。
 
-## SPA を起動（章 6 で使う）
+## SPA を起動（章 6・9 のブラウザ操作で使う）
 
 ```bash
 make web        # → http://localhost:3000  （さらに別ターミナル。API も起動しておく）
@@ -35,6 +35,12 @@ make web        # → http://localhost:3000  （さらに別ターミナル。AP
 
 Vite dev サーバ。`/api/*` は `vite.config.ts` の proxy で `:8000` の API へ同一オリジンで転送される
 （本番は CloudFront が同じ振り分けをする）。フロントの `.env` は不要（Sentry は DSN 未設定で no-op）。
+
+## ワーカーを起動（章 8・9 で使う）
+
+```bash
+make worker     # SQS をポーリング。起動時にローカルのキュー / DLQ / テーブルを作成
+```
 
 ---
 
@@ -285,7 +291,64 @@ print(r.data, r.input_tokens, r.output_tokens, r.cost_usd)
 
 ---
 
-## 9. リセット
+## 9. レジュメ登録・希望条件（Phase 05）
+
+前提（開けておくターミナル）:
+
+| 確認方法 | 必要なプロセス |
+|---|---|
+| ブラウザで通し（下記「レジュメ（ブラウザ）」） | `make up` + `make api` + **`make web`** + `make worker` |
+| curl だけ（「API だけで確認」以降） | `make up` + `make api` + `make worker` |
+| enqueue だけ見たい（処理はされない） | `make up` + `make api` |
+
+`make up` は `-d` なので、実際に開くのは api / web / worker の最大 3 枚。
+ブラウザは <http://localhost:3000>（`make web`）にサインイン後、ヘッダの
+**Résumés** / **Preferences**。
+
+### レジュメ（ブラウザ）
+
+1. **Résumés** → 「Paste your résumé」に職務経歴を貼って **Create from text**、
+   または PDF/DOCX を選択（ブラウザが presigned URL で S3 へ直接 PUT）
+2. 詳細画面に遷移し「Reading and structuring…」（2 秒間隔でポーリング）
+3. 実 LLM 呼び出しには `APP_ANTHROPIC_API_KEY` が必要（`backend/.env`、章 準備参照）。
+   未設定だと worker が `resume.process` で失敗し、version は `structuring` のまま
+   → `make worker` のログに traceback、SQS で redrive → DLQ
+4. キーがあれば `ready` になり編集フォーム表示：summary / skills（カンマ区切り）/
+   会社・実績。数値の無い実績には 💡 の定量化ヒント。**Save** で `PATCH`
+
+### API だけで確認（キー不要な範囲）
+
+```bash
+J=/tmp/j; # 章 3 でログイン済みのクッキージャー
+CSRF=$(awk '/cc_csrf/{print $NF}' $J)
+
+# テキストから作成 → status=structuring、resume.process が enqueue される
+curl -s -c $J -b $J -X POST localhost:8000/api/v1/resumes \
+  -H 'content-type: application/json' -H "x-csrf-token: $CSRF" \
+  -d '{"raw_text":"Jane Doe. Backend engineer six years. Python FastAPI PostgreSQL AWS."}'
+
+curl -s -c $J -b $J localhost:8000/api/v1/resumes           # 一覧
+```
+
+### アップロード用 S3 の中身
+
+```bash
+alias s3='aws --endpoint-url=http://localhost:4566 s3'
+s3 ls s3://career-copilot-local-resumes/resumes/ --recursive
+```
+
+### 希望条件
+
+```bash
+curl -s -c $J -b $J -X PUT localhost:8000/api/v1/preferences \
+  -H 'content-type: application/json' -H "x-csrf-token: $CSRF" \
+  -d '{"desired_roles":["Backend Engineer"],"locations":["Tokyo","Remote"],"salary_min":8000000,"remote_required":true}'
+curl -s -c $J -b $J localhost:8000/api/v1/preferences
+```
+
+---
+
+## 10. リセット
 
 ```bash
 # DynamoDB / SQS / MailHog の中身だけ捨てる

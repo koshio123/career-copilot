@@ -63,6 +63,14 @@ class ResumeVersionSource(enum.StrEnum):
     TAILORED = "tailored"
 
 
+class ResumeVersionStatus(enum.StrEnum):
+    PENDING = "pending"
+    EXTRACTING = "extracting"
+    STRUCTURING = "structuring"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class AnalysisKind(enum.StrEnum):
     GAP_ANALYSIS = "gap_analysis"
     RESUME_TAILORING = "resume_tailoring"

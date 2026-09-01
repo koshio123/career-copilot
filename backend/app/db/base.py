@@ -7,7 +7,7 @@ predictable constraint names across migrations.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from sqlalchemy import DateTime, MetaData, func
@@ -38,8 +38,14 @@ class UUIDPrimaryKey:
     )
 
 
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
 class Timestamps:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # onupdate is Python-side: a server-side onupdate expires the column after an
+    # UPDATE, forcing a lazy re-fetch that breaks in async request handlers.
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=_utcnow
     )

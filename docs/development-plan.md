@@ -141,16 +141,17 @@
 
 **Goal**: PDF / Word または フォームから、構造化された職務経歴と希望条件を登録できる。
 
-- [ ] アップロード：PDF / Word → S3（presigned PUT）、サイズ・形式バリデーション
-- [ ] テキスト抽出：PDF（pypdf / pdfminer）、docx（python-docx）。抽出失敗時はフォーム入力にフォールバック
-- [ ] LLM 構造化：SQS 経由で 会社 / 期間 / 役割 / 実績 を JSON Schema 抽出
-- [ ] スキル・経験タグ：レジュメからの自動抽出 と 自己申告 の突き合わせ
-- [ ] 実績の定量化サポート：数値化されていない実績への指摘
-- [ ] CRUD + バージョン：`resumes` / `resume_versions`、構造化結果の確認・編集 API
-- [ ] 希望条件の登録：職種、年収レンジ、勤務地、リモート可否、転職時期（`job_preferences`）
-- [ ] フロント：アップロード画面、処理中の状態表示、構造化結果の編集フォーム、タグ確認 UI
+- [x] アップロード：`POST /resumes/uploads` が presigned PUT URL + user スコープの key を返す。ブラウザが直接 S3 へ PUT（API / Lambda はバイトを見ない）。`content_type` を PDF / DOCX に限定、S3 の `head_object` でサイズ検証。`app/storage/`（`ResumeStorage` + `ensure_bucket()`）
+- [x] テキスト抽出：`app/resumes/extract.py`（PDF=`pypdf`、DOCX=`python-docx`）。抽出失敗（`ExtractionError`）→ version `failed` + エラー文言、フォーム入力に誘導
+- [x] LLM 構造化：`resume.process` ワーカータスク（抽出 → `LlmClient.structured()` で `RESUME_TOOL_SCHEMA`）。SQS 経由（API が `get_queue("default")` で enqueue）。会社 / 期間 / 役割 / 実績 + skills + summary
+- [x] スキル・経験タグ：LLM が `skills[]` を抽出、編集フォームで確認・修正（＝突き合わせ後の集合）。自己申告用の別ストアは MVP では持たない
+- [x] 実績の定量化サポート：achievement ごとに `has_metric` フラグと（false なら）`suggestion`。フロントで 💡 ヒントとして表示
+- [x] CRUD + バージョン：`GET /resumes`（一覧）/ `GET /resumes/{id}`（+versions）/ `GET|PATCH /resumes/{id}/versions/{vid}`。編集は version を in-place 更新（tailored 版は Phase 07）。`ResumeService` + `ResumeRepository`（`UserScopedRepository`）
+- [x] 希望条件の登録：`GET|PUT /preferences`（1:1、未設定は空で返す）。`PreferenceRepository.upsert()`
+- [x] フロント：`/resumes`（アップロード / テキスト貼付）、`/resumes/:id`（status に応じて処理中 / 失敗 / 編集フォーム、`refetchInterval` でポーリング）、`/preferences`。AppLayout にナビ
+- [x] テスト：backend 15（S3=moto、`resume.process` の抽出/構造化/失敗/LLM 障害、CRUD、scoping、preferences）。Playwright e2e（アップロード → ポーリング → 編集 → 保存、preferences 往復）
 
-**Done**: PDF アップロード → 構造化 → 編集 → 保存 の一連が E2E で通る。
+**Done**: アップロード → `resume.process` → 構造化 → 編集フォーム → 保存 が Playwright e2e で通過。LocalStack 相手の実 enqueue → worker 処理も確認（実 LLM は要 API キー）。
 
 ---
 

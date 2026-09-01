@@ -17,6 +17,10 @@ from app.core.errors import AuthRequiredError, CsrfError
 from app.db.session import get_sessionmaker
 from app.email import EmailSender, get_email_sender
 from app.models import User
+from app.queue.base import Queue
+from app.queue.sqs import get_queue
+from app.services.resumes import ResumeService
+from app.storage import ResumeStorage, get_resume_storage
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -81,3 +85,20 @@ async def require_csrf(request: Request) -> None:
 
 
 CsrfGuard = Depends(require_csrf)
+
+
+def get_default_queue() -> Queue:
+    return get_queue("default")
+
+
+Storage = Annotated[ResumeStorage, Depends(get_resume_storage)]
+DefaultQueue = Annotated[Queue, Depends(get_default_queue)]
+
+
+def get_resume_service(
+    user: CurrentUser, db: DbSession, storage: Storage, queue: DefaultQueue
+) -> ResumeService:
+    return ResumeService(db, user_id=user.id, storage=storage, queue=queue)
+
+
+ResumeSvc = Annotated[ResumeService, Depends(get_resume_service)]

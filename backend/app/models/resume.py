@@ -7,7 +7,7 @@ from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, JsonDict, Timestamps, UUIDPrimaryKey
-from app.models.enums import ResumeVersionSource, pg_enum
+from app.models.enums import ResumeVersionSource, ResumeVersionStatus, pg_enum
 
 if TYPE_CHECKING:
     from app.models.job import JobPosting
@@ -45,6 +45,11 @@ class ResumeVersion(UUIDPrimaryKey, Timestamps, Base):
     source: Mapped[ResumeVersionSource] = mapped_column(
         pg_enum(ResumeVersionSource, "resume_version_source")
     )
+    status: Mapped[ResumeVersionStatus] = mapped_column(
+        pg_enum(ResumeVersionStatus, "resume_version_status"),
+        default=ResumeVersionStatus.PENDING,
+    )
+    error: Mapped[str | None] = mapped_column(Text)
 
     # Set when this version is a per-job tailored variant (Phase 07).
     tailored_for_job_posting_id: Mapped[uuid.UUID | None] = mapped_column(

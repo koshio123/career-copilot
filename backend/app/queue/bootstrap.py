@@ -40,4 +40,9 @@ def _ensure_queues_sync() -> dict[str, str]:
 
 
 async def ensure_queues() -> dict[str, str]:
-    return await asyncio.to_thread(_ensure_queues_sync)
+    urls = await asyncio.to_thread(_ensure_queues_sync)
+    if settings.is_local:
+        # so get_queue() enqueues to the real LocalStack queues, not LoggingQueue
+        settings.sqs_default_queue_url = urls["default"]
+        settings.sqs_browser_queue_url = urls["browser"]
+    return urls
