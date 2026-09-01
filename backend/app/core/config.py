@@ -67,6 +67,9 @@ class Settings(BaseSettings):
 
     # --- LLM (Phase 04) ---
     anthropic_api_key: str | None = None
+    # Required only when anthropic_api_key is an identity-linked key (not
+    # workspace-scoped); sent as the anthropic-workspace-id header.
+    anthropic_workspace_id: str | None = None
     llm_model: str = "claude-sonnet-5"
     llm_max_retries: int = 3
     llm_timeout_seconds: float = 60.0

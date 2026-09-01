@@ -42,6 +42,11 @@ class LlmClient:
             api_key=settings.anthropic_api_key,
             timeout=settings.llm_timeout_seconds,
             max_retries=settings.llm_max_retries,
+            default_headers=(
+                {"anthropic-workspace-id": settings.anthropic_workspace_id}
+                if settings.anthropic_workspace_id
+                else None
+            ),
         )
         self.model = settings.llm_model
 

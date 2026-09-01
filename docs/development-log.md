@@ -48,6 +48,11 @@ token counts + an estimated cost (`cost.py`, per-model $/Mtok table).
 `docker-compose` LocalStack already had `sqs`. `conftest` gained a shared
 `moto_aws` fixture (mocks all of AWS, resets the cached boto3 clients).
 
+**Manual testing** — `scripts/enqueue.py` (`uv run python -m scripts.enqueue
+ping '{...}'`) to put a task on the local queue by hand; `docs/manual-testing.md`
+ch. 8 walks the worker, redrive→DLQ, idempotency, the Lambda handler, and a live
+LLM call.
+
 ### Verification
 
 | Gate | Result |

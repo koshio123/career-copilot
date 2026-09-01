@@ -193,11 +193,106 @@ docker compose exec db psql -U career -d career_copilot \
 
 ---
 
-## 8. リセット
+## 8. 非同期ワーカー（Phase 04）
+
+`make up`（LocalStack の SQS / DynamoDB）が前提。
+
+### ワーカーを起動
 
 ```bash
-# DynamoDB / MailHog の中身だけ捨てる
+make worker
+```
+
+起動ログ：`worker.start queue=...career-copilot-local-tasks`。
+初回は `default` / `browser` の 2 キュー + 各 DLQ、`-processed-tasks` テーブルを自動作成する。
+
+### タスクを投入して処理を見る（別ターミナル）
+
+```bash
+cd backend
+
+# 成功するタスク
+uv run python -m scripts.enqueue ping '{"echo": "hello"}'
+#   → ワーカー側ログ: task.start → task.ping (echo=hello) → task.done
+
+# 失敗するタスク
+uv run python -m scripts.enqueue ping '{"fail": true}'
+#   → task.failed + traceback。メッセージは削除されず in-flight のまま
+```
+
+`--browser` を付けると `browser` キューへ（ワーカーは `default` を見ているので処理はされない）。
+
+### 失敗 → 再配信 → DLQ
+
+失敗タスクは `VisibilityTimeout`（120 秒）が切れると再配信される。3 回受信されると DLQ 送り。
+待たずに確認したい場合はキュー属性を見る：
+
+```bash
+export AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local AWS_REGION=ap-northeast-1
+alias sqs='aws --endpoint-url=http://localhost:4566 sqs'
+
+Q=$(sqs get-queue-url --queue-name career-copilot-local-tasks --query QueueUrl --output text)
+sqs get-queue-attributes --queue-url "$Q" \
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible
+
+DLQ=$(sqs get-queue-url --queue-name career-copilot-local-tasks-dlq --query QueueUrl --output text)
+sqs receive-message --queue-url "$DLQ"      # 3 回失敗した後にここへ来る
+```
+
+### 冪等性
+
+同じメッセージが 2 回配信されても 2 回目はスキップされる（成功後にキーを記録）。
+`scripts.enqueue` は毎回新しいキーを振るので、SQS の重複配信でしか再現しないが、
+処理済みキーは DynamoDB で確認できる：
+
+```bash
+alias ddb='aws --endpoint-url=http://localhost:4566 dynamodb'
+ddb scan --table-name career-copilot-local-processed-tasks
+#   → 処理成功した idempotency_key と expires_at（TTL 24h）
+```
+
+### Lambda ハンドラの単体確認（キュー不要）
+
+```bash
+cd backend && uv run python -c "
+import asyncio, json
+from app.workers.lambda_handler import _process
+from app.queue.base import TaskMessage
+ev = [
+  {'messageId': 'ok',  'body': TaskMessage(task='ping', payload={'echo':'a'}).to_body()},
+  {'messageId': 'bad', 'body': TaskMessage(task='ping', payload={'fail':True}).to_body()},
+]
+print(asyncio.run(_process(ev)))
+"
+#   → {'batchItemFailures': [{'itemIdentifier': 'bad'}]}
+```
+
+### LLM クライアント
+
+実際の Claude 呼び出しには `APP_ANTHROPIC_API_KEY` が要る（未設定なら `structured()` は
+`ServiceUnavailableError`）。キーを入れれば：
+
+```bash
+cd backend && APP_ANTHROPIC_API_KEY=sk-ant-... uv run python -c "
+import asyncio
+from app.llm import get_llm_client
+schema = {'type':'object','properties':{'title':{'type':'string'}},'required':['title']}
+r = asyncio.run(get_llm_client().structured(
+    prompt='Extract the job title from: Senior Backend Engineer, Tokyo', schema=schema))
+print(r.data, r.input_tokens, r.output_tokens, r.cost_usd)
+"
+```
+
+---
+
+## 9. リセット
+
+```bash
+# DynamoDB / SQS / MailHog の中身だけ捨てる
 docker compose restart localstack mailhog
+
+# 特定のキューだけ空にする
+sqs purge-queue --queue-url "$Q"
 
 # DB も含めて全部
 make down && docker compose down -v && make up && make migrate
