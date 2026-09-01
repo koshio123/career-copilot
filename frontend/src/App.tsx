@@ -2,6 +2,9 @@ import { Navigate, Route, Routes } from 'react-router'
 
 import { DashboardPage } from './pages/DashboardPage'
 import { LoginPage } from './pages/LoginPage'
+import { PreferencesPage } from './pages/PreferencesPage'
+import { ResumeDetailPage } from './pages/ResumeDetailPage'
+import { ResumesPage } from './pages/ResumesPage'
 import { AppLayout } from './routes/AppLayout'
 import { ProtectedRoute } from './routes/ProtectedRoute'
 
@@ -12,6 +15,9 @@ export function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route path="/" element={<DashboardPage />} />
+          <Route path="/resumes" element={<ResumesPage />} />
+          <Route path="/resumes/:resumeId" element={<ResumeDetailPage />} />
+          <Route path="/preferences" element={<PreferencesPage />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

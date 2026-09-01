@@ -1,6 +1,6 @@
 import type { ComponentPropsWithRef, ReactNode } from 'react'
 
-const cx = (...parts: (string | false | undefined)[]) => parts.filter(Boolean).join(' ')
+import { cx } from '../lib/cn'
 
 export function Button({
   className,
@@ -23,6 +23,20 @@ export function Button({
 export function Input({ className, ...props }: ComponentPropsWithRef<'input'>) {
   return (
     <input
+      className={cx(
+        'w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm ' +
+          'placeholder:text-neutral-400 focus:border-sky-500 focus:outline-none ' +
+          'dark:border-neutral-700 dark:bg-neutral-900',
+        className,
+      )}
+      {...props}
+    />
+  )
+}
+
+export function Textarea({ className, ...props }: ComponentPropsWithRef<'textarea'>) {
+  return (
+    <textarea
       className={cx(
         'w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm ' +
           'placeholder:text-neutral-400 focus:border-sky-500 focus:outline-none ' +

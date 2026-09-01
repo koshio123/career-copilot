@@ -48,7 +48,7 @@ from sqlalchemy import NullPool
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
-from app.api.deps import get_db
+from app.api.deps import get_db, get_default_queue
 from app.auth.otp import get_otp_store
 from app.auth.ratelimit import get_rate_limiter
 from app.auth.sessions import get_session_store
@@ -56,11 +56,15 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.email import get_email_sender
 from app.main import app
+from app.models import User
+from app.storage import get_resume_storage
 from tests.fakes import (
     FakeEmailSender,
+    FakeResumeStorage,
     InMemoryOtpStore,
     InMemoryRateLimiter,
     InMemorySessionStore,
+    RecordingQueue,
 )
 
 
@@ -106,7 +110,12 @@ def moto_aws() -> Iterator[object]:
 
     from app.core import aws as aws_mod
 
-    caches = (aws_mod.dynamodb_resource, aws_mod.ses_client, aws_mod.sqs_client)
+    caches = (
+        aws_mod.dynamodb_resource,
+        aws_mod.ses_client,
+        aws_mod.sqs_client,
+        aws_mod.s3_client,
+    )
     with mock_aws():
         for cache in caches:
             cache.cache_clear()
@@ -136,12 +145,24 @@ def email() -> FakeEmailSender:
 
 
 @pytest.fixture
+def storage() -> FakeResumeStorage:
+    return FakeResumeStorage()
+
+
+@pytest.fixture
+def task_queue() -> RecordingQueue:
+    return RecordingQueue()
+
+
+@pytest.fixture
 async def client(
     db: AsyncSession,
     sessions: InMemorySessionStore,
     otp: InMemoryOtpStore,
     rate_limiter: InMemoryRateLimiter,
     email: FakeEmailSender,
+    storage: FakeResumeStorage,
+    task_queue: RecordingQueue,
 ) -> AsyncGenerator[AsyncClient]:
     async def _db() -> AsyncGenerator[AsyncSession]:
         yield db
@@ -151,9 +172,26 @@ async def client(
     app.dependency_overrides[get_otp_store] = lambda: otp
     app.dependency_overrides[get_rate_limiter] = lambda: rate_limiter
     app.dependency_overrides[get_email_sender] = lambda: email
+    app.dependency_overrides[get_resume_storage] = lambda: storage
+    app.dependency_overrides[get_default_queue] = lambda: task_queue
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def signed_in(client: AsyncClient, db: AsyncSession, sessions: InMemorySessionStore) -> User:
+    """Create a verified user, forge a session, wire the cookies + CSRF header."""
+    from datetime import UTC, datetime
+
+    user = User(email="me@example.com", email_verified_at=datetime.now(UTC))
+    db.add(user)
+    await db.flush()
+    token = await sessions.create(user_id=user.id, user_agent="pytest", ip="127.0.0.1")
+    client.cookies.set("cc_session", token)
+    client.cookies.set("cc_csrf", "test-csrf")
+    client.headers["x-csrf-token"] = "test-csrf"
+    return user

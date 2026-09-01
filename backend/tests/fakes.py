@@ -7,6 +7,7 @@ real DynamoDB implementations are exercised separately against moto.
 from __future__ import annotations
 
 import re
+import uuid
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -16,6 +17,8 @@ from app.auth.otp import OtpResult, OtpVerification
 from app.auth.sessions import SessionRecord
 from app.core.config import settings
 from app.email import EmailMessage
+from app.queue.base import TaskMessage
+from app.storage.s3 import Upload
 
 
 class InMemorySessionStore:
@@ -120,3 +123,71 @@ class FakeEmailSender:
             return None
         match = re.search(r"\b(\d{6})\b", self.sent[-1].text)
         return match.group(1) if match else None
+
+
+class RecordingQueue:
+    def __init__(self) -> None:
+        self.messages: list[TaskMessage] = []
+
+    async def enqueue(self, message: TaskMessage) -> None:
+        self.messages.append(message)
+
+
+class FakeResumeStorage:
+    """In-memory résumé object store."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+
+    def create_upload(self, *, user_id: uuid.UUID, content_type: str) -> Upload:
+        ext = "pdf" if "pdf" in content_type else "docx"
+        key = f"resumes/{user_id}/{uuid.uuid4().hex}.{ext}"
+        return Upload(key=key, url=f"https://s3.test/{key}", max_bytes=settings.upload_max_bytes)
+
+    def put(self, key: str, data: bytes) -> None:
+        self.objects[key] = data
+
+    async def size(self, key: str) -> int | None:
+        obj = self.objects.get(key)
+        return len(obj) if obj is not None else None
+
+    async def download(self, key: str) -> bytes:
+        return self.objects[key]
+
+    async def delete(self, key: str) -> None:
+        self.objects.pop(key, None)
+
+
+class FakeLlmClient:
+    """Duck-types LlmClient for worker tests (no anthropic SDK involved)."""
+
+    def __init__(self, *, data: dict[str, object] | None = None, error: Exception | None = None):
+        from decimal import Decimal
+
+        self.model = "claude-sonnet-5-fake"
+        self._data = data or {"summary": "s", "companies": [], "skills": ["python"]}
+        self._error = error
+        self._cost = Decimal("0.001")
+
+    async def structured(self, *, prompt: str, schema: dict[str, object], **_: object):  # type: ignore[no-untyped-def]
+        from app.llm.client import StructuredResult
+
+        if self._error is not None:
+            raise self._error
+        return StructuredResult(
+            data=dict(self._data), input_tokens=100, output_tokens=20, cost_usd=self._cost
+        )
+
+    def usage_row(self, result, *, purpose: str, **fields: object):  # type: ignore[no-untyped-def]
+        from app.models import LlmUsage
+
+        return LlmUsage(
+            purpose=purpose,
+            model=self.model,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            cost_usd=result.cost_usd,
+            user_id=fields.get("user_id"),
+            related_kind=fields.get("related_kind"),
+            related_id=fields.get("related_id"),
+        )

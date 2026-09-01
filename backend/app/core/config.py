@@ -65,6 +65,15 @@ class Settings(BaseSettings):
     worker_batch_size: int = 10
     worker_visibility_timeout: int = 120
 
+    # --- storage (Phase 05) ---
+    s3_resume_bucket: str = "career-copilot-local-resumes"
+    upload_max_bytes: int = 10 * 1024 * 1024
+    upload_url_ttl_seconds: int = 900
+    allowed_upload_types: tuple[str, ...] = (
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
     # --- LLM (Phase 04) ---
     anthropic_api_key: str | None = None
     # Required only when anthropic_api_key is an identity-linked key (not
