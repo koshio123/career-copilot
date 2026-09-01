@@ -159,12 +159,22 @@
 
 **Goal**: `CLAUDE.local.md §4.2` の 9 手順を、ATS → JSON-LD → LLM の優先順で実装する。
 
-> 着手前に「未決定事項」#2〜#4（ATS ベンダ優先順位・国産 ATS 調査・robots/規約の方針）を潰しておく。
+> 着手前の「未決定事項」#2〜#4 は ADR-0012（ATS ベンダ）/ ADR-0013（robots・規約）で決着。
+> 実装は 2 分割：**part 1** = 取得基盤、**part 2** = 分類・構造化・マッチ。
 
-- [ ] URL 登録 API：採用トップ / 求人一覧ページを登録。`job_sources` に保存
-- [ ] robots.txt / アクセス制御：取得前に robots を機械チェック（`protego` 等）、Disallow は取らない。アクセス間隔制御、User-Agent 明示
+**Part 1（取得基盤）**
+
+- [x] URL 登録 API：採用トップ / 求人一覧ページを登録。`job_sources` に保存
+- [x] robots.txt / アクセス制御：取得前に robots を機械チェック（`protego`）、Disallow は取らない。アクセス間隔制御（≥3s / host）、User-Agent 明示
+- [x] SSRF 対策：スキーム制限・プライベート/リンクローカル/メタデータ IP ブロック・リダイレクト再検証・サイズ/時間上限（Phase 09 と同時、`app/ingest/http.py`）
+- [x] 差分検知の土台：`dedup_key`（会社名正規化 + sha256）— ADR-0009 のフォールバックキー
+- [x] スケジューリング：`enqueue_due_sources()` が取得期限の来た `job_sources` を SQS 投入（EventBridge → Lambda 化は Phase 10、ローカルは `scripts/schedule_fetches.py`）。取得失敗はサイレントリトライせず `last_error` を UI に出し手動登録へ誘導
+- [x] フロント：求人一覧（スコア順）、ソース一覧とステータス、取得失敗表示、手動登録フォーム、ブックマーク / ステータス管理
+
+**Part 2（分類・構造化・マッチ）**
+
 - [ ] ソース判定 A（ATS）：URL パターン（`boards.greenhouse.io` / `jobs.lever.co` / `*.ashbyhq.com` 等）+ ページ内スクリプト / iframe / リンクホストで判定、board 識別子を抽出
-- [ ] ATS アダプタ：Greenhouse / Lever / Ashby（+ 国内実績で HERP）から着手 → **共通スキーマへの正規化レイヤー**（ページネーション・日付形式のベンダ差を吸収）。未対応は経路 C へフォールバック
+- [ ] ATS アダプタ：Greenhouse / Lever / Ashby → **共通スキーマへの正規化レイヤー**（ページネーション・日付形式のベンダ差を吸収）。未対応は経路 C へフォールバック（ADR-0012）
 - [ ] ソース判定 B（JSON-LD）：`<script type="application/ld+json">` をパースして `JobPosting` を抽出（stdlib `json` + `selectolax`/`lxml`、または `extruct`）。`@graph` 形式・複数 JobPosting・HTML エンティティ対応。欠損フィールドは `needs_review`
 - [ ] ソース判定 C（フォールバック）：クロール（httpx 静的 / Playwright JS 必須は Fargate ワーカー）→ 一覧→詳細リンク発見（キーワード候補抽出 → LLM で「求人詳細か」判定の二段）→ `trafilatura` で本文抽出
 - [ ] 差分検知（手順 5）：正規化テキストのハッシュを前回と比較。**必ず LLM 呼び出しの前に置く**。A/B は構造化データを固定フィールド順で文字列化、C は抽出本文
@@ -172,8 +182,6 @@
 - [ ] LLM 構造化（手順 7、C のみ）：差分あり かつ 一次通過のみ。JSON Schema で出力強制、必須欠如は `needs_review`。**取得本文はプロンプトインジェクション前提で扱う**（横断リスク参照）
 - [ ] マッチ & 二次フィルタ（手順 8–9）：経歴 × 求人票でマッチ度スコア算出 → 閾値未満は保存せず破棄
 - [ ] 保存：閾値超のみ。構造化結果 + `source_type` + `ats_vendor` + `raw_text_hash` + `match_score`
-- [ ] スケジューリング：単一ディスパッチャ（EventBridge Scheduler → Lambda）が取得期限の来た `job_sources` を SQS に投入。取得失敗はサイレントリトライせずユーザーに明示し手動登録へ誘導
-- [ ] フロント：求人一覧（スコア順）、ソース一覧とステータス、取得失敗表示、手動登録フォーム、ブックマーク / ステータス管理
 
 **Done**: 実 ATS ボード 1 件・JSON-LD ページ 1 件・フォールバック 1 件 で 取得 → スコア → 保存 が通る。
 

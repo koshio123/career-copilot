@@ -1,6 +1,6 @@
 # ADR-0012: ATS vendor support and priority
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-01
 
 ## Context

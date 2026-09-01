@@ -348,6 +348,51 @@ curl -s -c $J -b $J localhost:8000/api/v1/preferences
 
 ---
 
+## 9b. 求人ソース登録・取得（Phase 06 part 1）
+
+前提：`make up` + `make api`（+ ブラウザ通しなら `make web`、取得を実際に走らせるなら `make worker`）。
+
+### ブラウザ
+
+1. ヘッダ **Jobs** → 「Manage career-page sources」→ Careers URL に採用ページ URL
+   （例 `https://boards.greenhouse.io/anthropic`）を入れて **Add source**
+2. 一覧にカードが出て「Waiting for first fetch…」。数秒で worker が拾い
+   `robots: ok/blocked/unknown` と最終取得時刻 or エラーに変わる
+3. **Fetch now** で即再取得、**Pause/Resume**、**Delete**
+4. **Jobs** に戻り **Add a job manually** で会社・タイトルを入れると一覧に追加
+   （★で bookmark）。スコアが付くのは part 2
+
+> part 1 の `job_source.fetch` は robots チェックと到達性確認まで。求人の
+> 分類・抽出・スコアリングは part 2。
+
+### API だけ
+
+```bash
+J=/tmp/j; CSRF=$(awk '/cc_csrf/{print $NF}' $J)
+
+# ソース登録 → job_source.fetch が enqueue される
+curl -s -c $J -b $J -X POST localhost:8000/api/v1/job-sources \
+  -H 'content-type: application/json' -H "x-csrf-token: $CSRF" \
+  -d '{"url":"https://boards.greenhouse.io/anthropic"}'
+
+curl -s -c $J -b $J localhost:8000/api/v1/job-sources    # robots_state / last_* を確認
+
+# 期限の来たソースをまとめて enqueue（EventBridge ディスパッチャの代役）
+uv run --project backend python -m scripts.schedule_fetches
+
+# 手動求人
+curl -s -c $J -b $J -X POST localhost:8000/api/v1/jobs \
+  -H 'content-type: application/json' -H "x-csrf-token: $CSRF" \
+  -d '{"company_name":"Acme","title":"Backend Engineer","location":"Tokyo"}'
+curl -s -c $J -b $J localhost:8000/api/v1/jobs
+```
+
+SSRF ガードの確認：`{"url":"http://169.254.169.254/"}` や `http://localhost:8000/`
+を登録して `make worker` のログで `job_source.fetch` が `last_error` を残すのを見る
+（`APP_FETCH_ALLOW_PRIVATE_HOSTS` は既定 false）。
+
+---
+
 ## 10. リセット
 
 ```bash

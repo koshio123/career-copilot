@@ -1,6 +1,6 @@
 # ADR-0013: Fetch etiquette — robots.txt, rate limits, and ToS
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-01
 
 ## Context

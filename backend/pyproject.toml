@@ -65,6 +65,8 @@ known-first-party = ["app"]
 "alembic/versions/*.py" = ["E501"]
 # conftest sets test env vars before importing app modules that read settings.
 "tests/conftest.py" = ["E402"]
+# deliberately exercises full-width / ambiguous characters in normalisation.
+"tests/test_jobs_normalize.py" = ["RUF001"]
 
 [tool.mypy]
 python_version = "3.13"
