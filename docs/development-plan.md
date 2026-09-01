@@ -127,13 +127,13 @@
 
 **Goal**: キュー抽象・ワーカー・LLM クライアントをローカルで固める。
 
-- [ ] TaskQueue 抽象：SQS 実装 + キュー未設定時のログフォールバック
-- [ ] ワーカーのハンドラ設計：SQS メッセージ 1 件を処理する純粋関数。Lambda は部分バッチ応答（`batchItemFailures`）でラップ、Fargate は受信ループでラップ。冪等性、DLQ
-- [ ] ジョブ種別の割り当て：LLM 構造化・分析 → Lambda、ブラウザクロール（Playwright）→ Fargate ワーカーサービス
-- [ ] ローカル実行：`docker-compose` の LocalStack（SQS / S3）に対し、ワーカーを本番と同じハンドラ関数を呼ぶプロセスで回す（`make worker`）。テストは `moto` + ハンドラ関数の直接呼び出し
-- [ ] LLM クライアント：Claude、forced tool use で JSON Schema 構造化、トークン / 概算コストを `llm_usage` に記録、リトライ / バックオフ / タイムアウト、SDK エラー → `ServiceUnavailable` 写像、モデルは `settings.llm_model`
+- [x] TaskQueue 抽象：`app/queue/`。`TaskMessage`（task / payload / idempotency_key の JSON エンベロープ）、`Queue` Protocol、`SqsQueue` + `LoggingQueue`（URL 未設定時のフォールバック）、`get_queue("default"|"browser")`
+- [x] ワーカーのハンドラ設計：`app/workers/`。`@task("name")` レジストリ + `dispatch(TaskMessage)`（未知タスク→`UnknownTask`、DynamoDB 冪等性ストアで再配信スキップ）。`lambda_handler`（`batchItemFailures` 部分バッチ応答）/ `runner`（Fargate 受信ループ、失敗は visibility timeout → redrive → DLQ）。`ping` タスク（テスト/スモーク用、`{"fail": true}` で失敗）
+- [x] ジョブ種別の割り当て：`default` キュー（短時間ジョブ→Lambda）と `browser` キュー（Playwright→Fargate）を分離。`bootstrap.ensure_queues()` が両方 + DLQ + RedrivePolicy を作成（ローカル/テスト。dev/prod は Phase 10 Terraform）
+- [x] ローカル実行：`make worker`（`runner.py`、LocalStack SQS/DynamoDB に対しキュー・テーブルを自動作成してポーリング）。テストは `moto`（`conftest` の `moto_aws` フィクスチャ）+ ハンドラ直呼び
+- [x] LLM クライアント：`app/llm/`。Claude、forced tool use（単一ツール + `tool_choice`）で JSON Schema 構造化。`estimate_cost_usd`（モデル別料金表）+ `record_usage()` で `llm_usage` 行。SDK 内蔵リトライ（`max_retries` / `timeout`）、`anthropic.APIError` → `ServiceUnavailableError`（503）写像。モデルは `settings.llm_model`（既定 `claude-sonnet-5`）
 
-**Done**: enqueue → ワーカー処理 → 成功削除 / 失敗 redrive がローカルで自動テストできる。
+**Done**: `moto` で enqueue → `_poll_once` → 成功メッセージ削除 / 失敗メッセージは in-flight（redrive 設定確認）を自動テスト。`make worker` で LocalStack 相手の疎通も確認。
 
 ---
 

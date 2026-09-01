@@ -41,7 +41,7 @@ openapi: ## Regenerate backend/openapi.json + frontend API types
 	cd backend && uv run python -m scripts.dump_openapi
 	cd frontend && pnpm run gen:api
 
-worker: ## Run the async worker loop locally (Phase 04+)
+worker: ## Run the async worker loop locally (needs `make up`)
 	cd backend && uv run python -m app.workers.runner
 
 # --- quality gates ---

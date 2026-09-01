@@ -5,6 +5,81 @@ phase. The roadmap is `development-plan.md`; decisions are in `adr/`.
 
 ---
 
+## 2026-09-01 — Phase 04: Async worker foundation
+
+Branch: `phase-04-workers`.
+
+### Goal
+
+A queue abstraction, a worker that runs the same handlers in Lambda and Fargate,
+and an LLM client — provable locally with `enqueue → process → delete / redrive`.
+
+### What was built
+
+**Queue** (`app/queue/`) — `TaskMessage` (JSON envelope: `task`, `payload`,
+`idempotency_key`, `enqueued_at`). `Queue` Protocol; `SqsQueue` (boto3
+`send_message` in a thread) and `LoggingQueue` (logs when no URL is set).
+`get_queue("default" | "browser")`. `bootstrap.ensure_queues()` creates both
+queues + a DLQ each with a `RedrivePolicy` (maxReceiveCount 3) — local/test only.
+
+**Workers** (`app/workers/`)
+
+- `registry.py` — `@task("name")` → handler map.
+- `dispatch.py` — look up handler (`UnknownTask` if missing), skip if the
+  idempotency key was already processed, run, then mark. `idempotency.py` is a
+  DynamoDB table (`-processed-tasks`, 24h TTL); handlers should still be
+  idempotent for the concurrent-first-delivery case.
+- `lambda_handler.py` — SQS event → per-record dispatch → returns
+  `batchItemFailures` (partial batch response).
+- `runner.py` — the Fargate/local poll loop (`make worker`): long-poll,
+  dispatch, `delete_message` on success, leave failures for the visibility
+  timeout → redrive → DLQ. SIGINT/SIGTERM stop it cleanly. Creates local
+  queues + tables on startup.
+- `tasks/ping.py` — trivial task for smoke tests (`{"fail": true}` raises).
+
+**LLM client** (`app/llm/`) — `LlmClient.structured(prompt, schema)` forces one
+tool call whose `input_schema` is the wanted JSON Schema and returns its input +
+token counts + an estimated cost (`cost.py`, per-model $/Mtok table).
+`record_usage()` writes an `llm_usage` row. SDK errors (after its own retries)
+→ `ServiceUnavailableError` (new, 503). Model from `settings.llm_model`
+(`claude-sonnet-5`). `anthropic` added to the `worker` extra.
+
+**Config / infra** — `APP_SQS_*`, `APP_ANTHROPIC_API_KEY`, `APP_LLM_*`.
+`docker-compose` LocalStack already had `sqs`. `conftest` gained a shared
+`moto_aws` fixture (mocks all of AWS, resets the cached boto3 clients).
+
+**Manual testing** — `scripts/enqueue.py` (`uv run python -m scripts.enqueue
+ping '{...}'`) to put a task on the local queue by hand; `docs/manual-testing.md`
+ch. 8 walks the worker, redrive→DLQ, idempotency, the Lambda handler, and a live
+LLM call.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `make lint` | ruff + mypy (71 files) ✓ ; eslint + tsc ✓ |
+| `make test` | pytest 34 ✓ ; vitest 3 ✓ ; coverage 90% |
+| queue E2E (moto) | enqueue 2 → `_poll_once` → success deleted, failure in-flight |
+| `lambda_handler` | 2 records (ok + bad) → `batchItemFailures` = `[bad]` |
+| `make worker` | connects to LocalStack, polls, processes `ping`, redrives failures |
+
+### Deviations from `development-plan.md`
+
+- Idempotency is best-effort (get-then-put on DynamoDB), not a hard exactly-once
+  guarantee — documented in `idempotency.py`.
+- `runner.run()`'s loop/signal glue is thin and not unit-tested; `_poll_once`
+  (the actual work) is.
+
+### Follow-ups
+
+- No endpoint enqueues anything yet — Phase 05 (résumé upload) is the first
+  producer; the API lifespan will `ensure_queues()` then.
+- Worker packaging (Lambda zip / Fargate image) and the real queues are Phase 10.
+- Real Anthropic calls are untested by design (SDK mocked); a smoke test with a
+  live key can be a manual/optional check.
+
+---
+
 ## 2026-08-31 — Phase 03: Frontend foundation
 
 Branch: `phase-03-frontend`.

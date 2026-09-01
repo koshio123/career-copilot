@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 # Async worker runtime (Phase 04+). Kept out of the API image.
 worker = [
+    "anthropic>=0.40",
     "trafilatura>=2.0",
     "selectolax>=0.3.25",
     "protego>=0.3",

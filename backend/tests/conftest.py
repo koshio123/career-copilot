@@ -33,7 +33,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 
 import pytest
 
@@ -97,6 +97,22 @@ async def db(engine: AsyncEngine) -> AsyncGenerator[AsyncSession]:
         finally:
             await session.close()
             await trans.rollback()
+
+
+@pytest.fixture
+def moto_aws() -> Iterator[object]:
+    """Mock every AWS service and reset the cached boto3 clients around the test."""
+    from moto import mock_aws
+
+    from app.core import aws as aws_mod
+
+    caches = (aws_mod.dynamodb_resource, aws_mod.ses_client, aws_mod.sqs_client)
+    with mock_aws():
+        for cache in caches:
+            cache.cache_clear()
+        yield aws_mod
+    for cache in caches:
+        cache.cache_clear()
 
 
 @pytest.fixture
