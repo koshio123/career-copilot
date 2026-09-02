@@ -171,17 +171,21 @@
 - [x] スケジューリング：`enqueue_due_sources()` が取得期限の来た `job_sources` を SQS 投入（EventBridge → Lambda 化は Phase 10、ローカルは `scripts/schedule_fetches.py`）。取得失敗はサイレントリトライせず `last_error` を UI に出し手動登録へ誘導
 - [x] フロント：求人一覧（スコア順）、ソース一覧とステータス、取得失敗表示、手動登録フォーム、ブックマーク / ステータス管理
 
-**Part 2（分類・構造化・マッチ）**
+**Part 2a（分類・構造化・マッチ — 経路 A/B）**
 
-- [ ] ソース判定 A（ATS）：URL パターン（`boards.greenhouse.io` / `jobs.lever.co` / `*.ashbyhq.com` 等）+ ページ内スクリプト / iframe / リンクホストで判定、board 識別子を抽出
-- [ ] ATS アダプタ：Greenhouse / Lever / Ashby → **共通スキーマへの正規化レイヤー**（ページネーション・日付形式のベンダ差を吸収）。未対応は経路 C へフォールバック（ADR-0012）
-- [ ] ソース判定 B（JSON-LD）：`<script type="application/ld+json">` をパースして `JobPosting` を抽出（stdlib `json` + `selectolax`/`lxml`、または `extruct`）。`@graph` 形式・複数 JobPosting・HTML エンティティ対応。欠損フィールドは `needs_review`
-- [ ] ソース判定 C（フォールバック）：クロール（httpx 静的 / Playwright JS 必須は Fargate ワーカー）→ 一覧→詳細リンク発見（キーワード候補抽出 → LLM で「求人詳細か」判定の二段）→ `trafilatura` で本文抽出
-- [ ] 差分検知（手順 5）：正規化テキストのハッシュを前回と比較。**必ず LLM 呼び出しの前に置く**。A/B は構造化データを固定フィールド順で文字列化、C は抽出本文
-- [ ] 一次フィルタ（手順 6）：ルールベースで「明らかな不一致」のみ除外（職種カテゴリ違い、勤務地 NG かつリモート不可、雇用形態対象外）。ここで LLM を呼ばない。除外分は DB に残さない
-- [ ] LLM 構造化（手順 7、C のみ）：差分あり かつ 一次通過のみ。JSON Schema で出力強制、必須欠如は `needs_review`。**取得本文はプロンプトインジェクション前提で扱う**（横断リスク参照）
-- [ ] マッチ & 二次フィルタ（手順 8–9）：経歴 × 求人票でマッチ度スコア算出 → 閾値未満は保存せず破棄
-- [ ] 保存：閾値超のみ。構造化結果 + `source_type` + `ats_vendor` + `raw_text_hash` + `match_score`
+- [x] ソース判定 A（ATS）：URL パターン + ページ内 embed（`<script>`/iframe/リンク）で判定、board 識別子を抽出（`app/ingest/detect.py`）
+- [x] ATS アダプタ：Greenhouse / Lever / Ashby → **共通スキーマへの正規化レイヤー**（Ashby の JPY 給与も）。未対応は経路 C へ（ADR-0012）
+- [x] ソース判定 B（JSON-LD）：`selectolax` で `JobPosting` を抽出。`@graph`・複数・HTML エンティティ対応。欠損は `needs_review`
+- [x] 差分検知（手順 5）：正規化テキストのハッシュ（`content_hash`）を保存済み `raw_text_hash` と比較。**LLM 呼び出しの前**
+- [x] 一次フィルタ（手順 6）：ルールベースで「明らかな不一致」のみ除外（雇用形態・リモート/勤務地）。LLM を呼ばない。除外分は DB に残さない
+- [x] マッチ（手順 8）：**LLM で「本人の志望 × 求人票」を 0–100 でスコアリング**（スキルではない。スキルギャップは Phase 07）。二次フィルタ（手順 9）：閾値 30 未満は保存しない
+- [x] 保存：閾値超のみ。`structured` + `source_type` + `ats_vendor` + `raw_text_hash` + `match_score` + `match`（根拠）。名寄せは `job_postings`
+
+**Part 2b（経路 C フォールバック + Playwright）**
+
+- [ ] ソース判定 C：クロール（httpx 静的 / Playwright JS 必須は別ワーカー）→ 一覧→詳細リンク発見（キーワード → LLM で「求人詳細ページか」判定の二段）→ `trafilatura` で本文抽出
+- [ ] LLM 構造化（手順 7、C のみ）：差分あり かつ 一次通過のみ。JSON Schema で出力強制、必須欠如は `needs_review`。**取得本文はプロンプトインジェクション前提**
+- [ ] `job_source.render`（`browser` キュー）＋ `make browser-worker`（Fargate 想定）
 
 **Done**: 実 ATS ボード 1 件・JSON-LD ページ 1 件・フォールバック 1 件 で 取得 → スコア → 保存 が通る。
 

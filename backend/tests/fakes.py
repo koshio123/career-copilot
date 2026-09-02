@@ -191,3 +191,65 @@ class FakeLlmClient:
             related_kind=fields.get("related_kind"),
             related_id=fields.get("related_id"),
         )
+
+
+class FakePoliteFetcher:
+    """Duck-types PoliteFetcher for ingestion tests. Serves canned FetchResults
+    keyed by a substring of the requested URL."""
+
+    def __init__(
+        self,
+        responses: dict[str, object] | None = None,
+        *,
+        robots_allowed: bool = True,
+    ) -> None:
+        self.responses = responses or {}
+        self.robots_allowed = robots_allowed
+        self.requested: list[str] = []
+
+    async def __aenter__(self) -> FakePoliteFetcher:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def aclose(self) -> None:
+        return None
+
+    async def check_robots(self, url: str):  # type: ignore[no-untyped-def]
+        from app.ingest.robots import RobotsDecision
+        from app.models.enums import RobotsState
+
+        return RobotsDecision(
+            allowed=self.robots_allowed, state=RobotsState.ALLOWED, crawl_delay=None
+        )
+
+    async def fetch(self, url: str, **_: object):  # type: ignore[no-untyped-def]
+        from app.ingest.errors import FetchError
+
+        self.requested.append(url)
+        for needle, result in self.responses.items():
+            if needle in url:
+                return result
+        raise FetchError(f"no canned response for {url}")
+
+
+def fetch_result(  # type: ignore[no-untyped-def]
+    body: str | bytes,
+    *,
+    status: int = 200,
+    content_type: str = "text/html",
+    url: str = "https://x/",
+):
+    from httpx import Headers
+
+    from app.ingest.http import FetchResult
+
+    data = body.encode() if isinstance(body, str) else body
+    return FetchResult(
+        url=url,
+        status_code=status,
+        headers=Headers({"content-type": content_type}),
+        content=data,
+        content_type=content_type,
+    )

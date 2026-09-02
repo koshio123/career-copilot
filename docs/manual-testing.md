@@ -348,22 +348,25 @@ curl -s -c $J -b $J localhost:8000/api/v1/preferences
 
 ---
 
-## 9b. 求人ソース登録・取得（Phase 06 part 1）
+## 9b. 求人ソース登録・取得（Phase 06 part 1 + 2a）
 
 前提：`make up` + `make api`（+ ブラウザ通しなら `make web`、取得を実際に走らせるなら `make worker`）。
+スコアリングには実 LLM 呼び出しが要る → `backend/.env` の `APP_ANTHROPIC_API_KEY`。
 
 ### ブラウザ
 
-1. ヘッダ **Jobs** → 「Manage career-page sources」→ Careers URL に採用ページ URL
-   （例 `https://boards.greenhouse.io/anthropic`）を入れて **Add source**
-2. 一覧にカードが出て「Waiting for first fetch…」。数秒で worker が拾い
-   `robots: ok/blocked/unknown` と最終取得時刻 or エラーに変わる
-3. **Fetch now** で即再取得、**Pause/Resume**、**Delete**
-4. **Jobs** に戻り **Add a job manually** で会社・タイトルを入れると一覧に追加
-   （★で bookmark）。スコアが付くのは part 2
+1. まず **Preferences** で志望条件（Desired roles / Locations / Remote 等）を保存
+2. ヘッダ **Jobs** → 「Manage career-page sources」→ Careers URL に ATS ボード or
+   JSON-LD を出す採用ページ（例 `https://boards.greenhouse.io/anthropic`）→ **Add source**
+3. 数秒で worker が取得し、カードに `greenhouse` / `json_ld` バッジと最終取得時刻
+4. **Jobs** に戻ると、閾値（既定 30）を超えた求人がマッチ度順に並ぶ。行を開くと
+   スコア・LLM の根拠・懸念点、`via greenhouse` などの経路、`check` バッジ（要確認項目）
+5. `job_source.fetch` は robots チェック済み・ATS API/JSON-LD が取れないページは
+   「add the roles manually」を表示（経路 C は part 2b）
+6. **Fetch now** / **Pause/Resume** / **Delete**、**Add a job manually**（手動求人はスコアなし）
 
-> part 1 の `job_source.fetch` は robots チェックと到達性確認まで。求人の
-> 分類・抽出・スコアリングは part 2。
+> 経路：A = ATS 公開 API（Greenhouse/Lever/Ashby）、B = ページの `JobPosting` JSON-LD。
+> どちらも無いページのクロール（経路 C）＋ Playwright は part 2b。
 
 ### API だけ
 
@@ -380,12 +383,17 @@ curl -s -c $J -b $J localhost:8000/api/v1/job-sources    # robots_state / last_*
 # 期限の来たソースをまとめて enqueue（EventBridge ディスパッチャの代役）
 uv run --project backend python -m scripts.schedule_fetches
 
-# 手動求人
+# 取得結果（スコア順、structured.match に根拠）
+curl -s -c $J -b $J localhost:8000/api/v1/jobs | python -m json.tool
+
+# 手動求人（スコアは付かない）
 curl -s -c $J -b $J -X POST localhost:8000/api/v1/jobs \
   -H 'content-type: application/json' -H "x-csrf-token: $CSRF" \
   -d '{"company_name":"Acme","title":"Backend Engineer","location":"Tokyo"}'
-curl -s -c $J -b $J localhost:8000/api/v1/jobs
 ```
+
+閾値の調整：`backend/.env` に `APP_MATCH_SCORE_THRESHOLD=0` を入れると全件保存され、
+LLM が付けたスコアを確認しながら絞れる。
 
 SSRF ガードの確認：`{"url":"http://169.254.169.254/"}` や `http://localhost:8000/`
 を登録して `make worker` のログで `job_source.fetch` が `last_error` を残すのを見る

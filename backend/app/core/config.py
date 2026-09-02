@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     fetch_allow_private_hosts: bool = False
     # Default re-fetch cadence for a newly registered source.
     job_source_default_interval_hours: int = 24
+    # Jobs scoring below this (0-100, LLM match of preferences vs. the posting)
+    # are not saved (CLAUDE.local.md §4.2 step 9). Starts middling; tune down if
+    # good roles are being dropped.
+    match_score_threshold: int = 30
 
     # --- LLM (Phase 04) ---
     anthropic_api_key: str | None = None
