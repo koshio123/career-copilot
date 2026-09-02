@@ -5,6 +5,93 @@ phase. The roadmap is `development-plan.md`; decisions are in `adr/`.
 
 ---
 
+## 2026-09-01 — Phase 06 (part 1): job ingestion foundation
+
+Branch: `phase-06-jobs`. Phase 06 is split in two: **part 1** (this) is the
+fetch foundation — URL registration, SSRF-safe fetching, robots, the scheduler,
+manual entry; **part 2** is classification (routes A/B/C), adapters, diffing,
+filtering, and matching.
+
+### Pre-work — ADRs 0012 and 0013
+
+`development-plan.md` flags open questions #2–#4 to settle before Phase 06.
+Resolved as two proposed ADRs:
+
+- **ADR-0012 (ATS vendor support)** — ship route-A adapters for **Greenhouse,
+  Lever, Ashby** only; defer SmartRecruiters/Workable/Recruitee/Personio to
+  Phase 11; **no** adapter for HERP/HRMOS/Talentio (no documented public API —
+  they go through JSON-LD then LLM fallback). Survey of the seven vendors with
+  authless public APIs is in the ADR.
+- **ADR-0013 (fetch etiquette)** — honour `robots.txt` (via `protego`, cached
+  24h, `Disallow` ⇒ don't fetch, disallowed source ⇒ tell the user); identifying
+  User-Agent with a contact URL, never a spoofed browser UA; 3s min per-host
+  interval (raised by `Crawl-delay`); route-C crawl bounded to same-host /
+  path-prefix, depth 2, 40 pages; honour `Retry-After`; conditional requests;
+  ToS framing = "only pages a user registers for their own search, stored
+  per-user, no evasion of logins/anti-bot".
+
+### What was built
+
+**SSRF-safe fetch** (`app/ingest/http.py`) — `safe_get()`: scheme must be
+http/https; the host is resolved and **every** A/AAAA answer checked against a
+blocklist (private, loopback, link-local, CGNAT, reserved, multicast — this
+covers `169.254.169.254`); redirects are followed manually, re-validating each
+hop, up to `fetch_max_redirects`; body is streamed with a `fetch_max_bytes` cap
+and an overall timeout. DNS-rebinding (TOCTOU between resolve and connect) is a
+documented residual gap for Phase 09.
+
+**robots + politeness** (`app/ingest/`) — `RobotsCache` fetches `/robots.txt`
+through `safe_get`, parses with `protego`, caches per host 24h (404 ⇒ allowed,
+error ⇒ unknown/allowed). `HostRateLimiter` enforces a ≥3s per-host gap (raised
+by `Crawl-delay`). `PoliteFetcher` chains robots → rate limit → `safe_get` and
+owns one `httpx.AsyncClient`.
+
+**Data / dedup** (`app/jobs/normalize.py`) — `normalize_company` (drops
+株式会社 / Inc. / Co., Ltd. …, NFKC + casefold), `dedup_key` = sha256 of
+`normalize(company)|normalize(title)|normalize(location)` (ADR-0009 fallback
+key). `app/jobs/schema.py` holds the common `JobStructured` shape.
+
+**API** — `/job-sources` (register / list / get / delete / pause / resume /
+fetch-now) via `JobSourceService`; registering enqueues `job_source.fetch`.
+`/jobs` (list ranked by `match_score`, manual add, PATCH status/bookmark,
+delete) via `JobPostingService` — manual entry computes the dedup key and
+stores `structured.source_type = "manual"`.
+
+**Worker + scheduler** — `job_source.fetch` (part 1 scope): robots gate →
+SSRF-safe reachability check → record `robots_state`, `last_fetched_at`,
+`last_success_at` / `last_error`, back the source off to `error` after 5
+consecutive failures. `app/ingest/scheduler.enqueue_due_sources()` enqueues
+active sources past their `fetch_interval_hours`; `scripts/schedule_fetches.py`
+stands in for the EventBridge dispatcher locally.
+
+**Frontend** — `/jobs` (ranked list, bookmark toggle, manual-add form) and
+`/jobs/sources` (register a careers URL, per-source status / robots state /
+last-fetch / errors, pause·resume·fetch·delete). Nav gains "Jobs".
+
+No migration — the `job_sources` / `job_postings` / `jobs` tables were modelled
+in Phase 01 and part 1 adds no columns.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `make lint` | ruff + mypy (117 files) ✓ ; eslint + tsc ✓ |
+| `make test` | pytest 97 ✓ ; vitest 7 ✓ ; coverage 91% |
+| `pnpm run e2e` | 5 Playwright specs ✓ |
+| `alembic check` | no drift (no schema change) |
+| SSRF unit tests | loopback / private-DNS / metadata / non-http / redirect-to-private / redirect-limit / size-cap all blocked |
+
+### Deviations / deferred to part 2
+
+- `job_source.fetch` only proves the fetch path; it does not yet classify
+  (A/B/C), pull jobs, diff, filter, or score. `SourceType` / `ats_vendor` on a
+  source stay null until part 2.
+- Playwright (route C, JS-rendered pages) is in the `browser` extra but unused
+  in part 1; the Fargate rendering path is part 2.
+- ADRs 0012 / 0013 move to `Accepted` with this work.
+
+---
+
 ## 2026-09-01 — Phase 04: Async worker foundation
 
 Branch: `phase-04-workers`.

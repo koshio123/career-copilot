@@ -19,6 +19,7 @@ from app.email import EmailSender, get_email_sender
 from app.models import User
 from app.queue.base import Queue
 from app.queue.sqs import get_queue
+from app.services.jobs import JobPostingService, JobSourceService
 from app.services.resumes import ResumeService
 from app.storage import ResumeStorage, get_resume_storage
 
@@ -102,3 +103,17 @@ def get_resume_service(
 
 
 ResumeSvc = Annotated[ResumeService, Depends(get_resume_service)]
+
+
+def get_job_source_service(
+    user: CurrentUser, db: DbSession, queue: DefaultQueue
+) -> JobSourceService:
+    return JobSourceService(db, user_id=user.id, queue=queue)
+
+
+def get_job_posting_service(user: CurrentUser, db: DbSession) -> JobPostingService:
+    return JobPostingService(db, user_id=user.id)
+
+
+JobSourceSvc = Annotated[JobSourceService, Depends(get_job_source_service)]
+JobPostingSvc = Annotated[JobPostingService, Depends(get_job_posting_service)]

@@ -74,6 +74,21 @@ class Settings(BaseSettings):
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
 
+    # --- job ingestion / fetching (Phase 06) ---
+    # Identifiable UA with a contact URL (ADR-0013). Never a spoofed browser UA.
+    fetch_user_agent: str = "career-copilot/0.1 (+https://github.com/koshio123/career-copilot)"
+    fetch_timeout_seconds: float = 10.0
+    fetch_max_bytes: int = 5 * 1024 * 1024
+    fetch_max_redirects: int = 3
+    fetch_min_host_interval_seconds: float = 3.0
+    robots_cache_ttl_seconds: int = 86_400
+    crawl_max_depth: int = 2
+    crawl_max_pages: int = 40
+    # Allow fetching private / loopback hosts — only for local dev and tests.
+    fetch_allow_private_hosts: bool = False
+    # Default re-fetch cadence for a newly registered source.
+    job_source_default_interval_hours: int = 24
+
     # --- LLM (Phase 04) ---
     anthropic_api_key: str | None = None
     # Required only when anthropic_api_key is an identity-linked key (not
