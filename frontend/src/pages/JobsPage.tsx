@@ -108,7 +108,8 @@ export function JobsPage() {
         {jobs.isLoading && <Spinner />}
         {jobs.data?.length === 0 && (
           <p className="text-sm text-neutral-500">
-            No jobs yet. Add a career-page source or enter one manually.
+            No jobs yet. Use <span className="font-medium">Add a job manually</span> above —
+            automatic extraction from registered career pages is coming next.
           </p>
         )}
         <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">

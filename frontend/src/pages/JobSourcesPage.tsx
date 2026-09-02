@@ -48,7 +48,8 @@ export function JobSourcesPage() {
       <div>
         <h1 className="text-2xl font-semibold">Career-page sources</h1>
         <p className="text-sm text-neutral-500">
-          Register a company&apos;s careers or job-list URL. We re-check it on a schedule.{' '}
+          Register a company&apos;s careers or job-list URL. We check that it&apos;s reachable and
+          re-check it on a schedule; pulling the individual postings out is coming next.{' '}
           <Link to="/jobs" className="text-sky-600 hover:underline">
             Back to jobs
           </Link>
