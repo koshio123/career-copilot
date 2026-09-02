@@ -122,3 +122,14 @@ async def test_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(FetchTooLargeError):
         await safe_get("http://example.com/big", client=client)
     await client.aclose()
+
+
+async def test_max_bytes_override_raises_the_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        socket, "getaddrinfo", lambda *a, **k: [(socket.AF_INET, None, 0, "", ("93.184.216.34", 0))]
+    )
+    monkeypatch.setattr(settings, "fetch_max_bytes", 16)
+    client = _client(lambda req: httpx.Response(200, text="x" * 1000))
+    result = await safe_get("http://example.com/big", client=client, max_bytes=10_000)
+    assert len(result.content) == 1000
+    await client.aclose()

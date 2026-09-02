@@ -206,6 +206,7 @@ class FakePoliteFetcher:
         self.responses = responses or {}
         self.robots_allowed = robots_allowed
         self.requested: list[str] = []
+        self.fetch_kwargs: list[dict[str, object]] = []
 
     async def __aenter__(self) -> FakePoliteFetcher:
         return self
@@ -224,10 +225,11 @@ class FakePoliteFetcher:
             allowed=self.robots_allowed, state=RobotsState.ALLOWED, crawl_delay=None
         )
 
-    async def fetch(self, url: str, **_: object):  # type: ignore[no-untyped-def]
+    async def fetch(self, url: str, **kwargs: object):  # type: ignore[no-untyped-def]
         from app.ingest.errors import FetchError
 
         self.requested.append(url)
+        self.fetch_kwargs.append(kwargs)
         for needle, result in self.responses.items():
             if needle in url:
                 return result

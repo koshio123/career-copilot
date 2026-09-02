@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     fetch_user_agent: str = "career-copilot/0.1 (+https://github.com/koshio123/career-copilot)"
     fetch_timeout_seconds: float = 10.0
     fetch_max_bytes: int = 5 * 1024 * 1024
+    # Trusted ATS JSON APIs return the whole board at once — a large company's
+    # feed (with inline descriptions) can be tens of MB.
+    ats_response_max_bytes: int = 40 * 1024 * 1024
     fetch_max_redirects: int = 3
     fetch_min_host_interval_seconds: float = 3.0
     robots_cache_ttl_seconds: int = 86_400

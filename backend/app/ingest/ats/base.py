@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Protocol
 
+from app.core.config import settings
 from app.ingest.errors import FetchError
 from app.ingest.fetcher import PoliteFetcher
 from app.jobs.schema import FetchedJob
@@ -21,7 +22,9 @@ class AtsAdapter(Protocol):
 async def get_json(url: str, *, fetcher: PoliteFetcher) -> Any:
     """GET an ATS endpoint (route A: no robots gate, ADR-0013) and parse JSON."""
     try:
-        result = await fetcher.fetch(url, respect_robots=False)
+        result = await fetcher.fetch(
+            url, respect_robots=False, max_bytes=settings.ats_response_max_bytes
+        )
     except FetchError as exc:
         raise AtsError(str(exc)) from exc
     if result.status_code >= 400:

@@ -116,3 +116,12 @@ async def test_adapter_raises_on_http_error() -> None:
     )
     with pytest.raises(AtsError):
         await _fetch("lever", "acme", fetcher)
+
+
+async def test_ats_fetch_uses_the_large_response_cap() -> None:
+    from app.core.config import settings
+
+    fetcher = FakePoliteFetcher({"boards-api.greenhouse.io": fetch_result('{"jobs": []}')})
+    await _fetch("greenhouse", "acme", fetcher)
+    assert fetcher.fetch_kwargs[0]["max_bytes"] == settings.ats_response_max_bytes
+    assert fetcher.fetch_kwargs[0]["respect_robots"] is False

@@ -58,6 +58,7 @@ class PoliteFetcher:
         *,
         respect_robots: bool = True,
         headers: dict[str, str] | None = None,
+        max_bytes: int | None = None,
     ) -> FetchResult:
         host = urlparse(url).netloc
         crawl_delay: float | None = None
@@ -67,7 +68,7 @@ class PoliteFetcher:
                 raise RobotsDisallowedError(f"robots.txt disallows {url}")
             crawl_delay = decision.crawl_delay
         await self._limiter.acquire(host, min_interval=crawl_delay)
-        return await safe_get(url, client=self._client, headers=headers)
+        return await safe_get(url, client=self._client, headers=headers, max_bytes=max_bytes)
 
 
 def get_fetcher() -> PoliteFetcher:
