@@ -39,6 +39,10 @@ log = structlog.get_logger(__name__)
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _CGNAT = ipaddress.ip_network("100.64.0.0/10")
+# NAT64 translation prefixes (RFC 6052 well-known, RFC 8215 local-use). On a
+# DNS64/NAT64 network getaddrinfo hands back a synthesised v6 address in one of
+# these whose low 32 bits are the real (often public) IPv4 destination.
+_NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +67,20 @@ class FetchResult:
         return "utf-8"
 
 
+def _unwrap(
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """Follow an IPv4-mapped or NAT64 v6 address down to its embedded IPv4."""
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return ip.ipv4_mapped
+        if any(ip in net for net in _NAT64):
+            return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return ip
+
+
 def _ip_is_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    ip = _unwrap(ip)
     if ip.is_private or ip.is_loopback or ip.is_link_local:
         return True
     if ip.is_multicast or ip.is_reserved or ip.is_unspecified:

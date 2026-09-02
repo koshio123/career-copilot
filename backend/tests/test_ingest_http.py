@@ -22,11 +22,30 @@ def test_private_and_special_ips_are_blocked(ip: str) -> None:
     assert _ip_is_blocked(ipaddress.ip_address(ip)) is True
 
 
-@pytest.mark.parametrize("ip", ["93.184.216.34", "1.1.1.1", "2606:4700:4700::1111"])
+@pytest.mark.parametrize(
+    "ip",
+    [
+        "93.184.216.34",
+        "1.1.1.1",
+        "2606:4700:4700::1111",
+        "64:ff9b::8fcc:5007",  # NAT64 (DNS64 network) wrapping public 143.204.80.7
+        "::ffff:143.204.80.7",  # IPv4-mapped, public
+    ],
+)
 def test_public_ips_pass(ip: str) -> None:
     import ipaddress
 
     assert _ip_is_blocked(ipaddress.ip_address(ip)) is False
+
+
+@pytest.mark.parametrize(
+    "ip",
+    ["64:ff9b::7f00:1", "::ffff:10.0.0.1"],  # NAT64 / mapped wrapping private v4
+)
+def test_nat64_wrapping_private_v4_is_blocked(ip: str) -> None:
+    import ipaddress
+
+    assert _ip_is_blocked(ipaddress.ip_address(ip)) is True
 
 
 async def test_rejects_non_http_scheme() -> None:
