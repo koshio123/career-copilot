@@ -57,7 +57,7 @@ test('add a job manually and bookmark it', async ({ page }) => {
         status: 'new',
         bookmarked: false,
         match_score: null,
-        structured: {},
+        structured: { description: 'Own the platform roadmap.', required_skills: ['Go'] },
         source_type: 'manual',
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
@@ -79,6 +79,11 @@ test('add a job manually and bookmark it', async ({ page }) => {
   await page.getByRole('button', { name: 'Add job' }).click()
 
   await expect(page.getByText('Staff Engineer')).toBeVisible()
+
+  // expand to see the description
+  await page.getByRole('button', { name: /Staff Engineer/ }).click()
+  await expect(page.getByText('Own the platform roadmap.')).toBeVisible()
+
   await page.getByRole('button', { name: 'Bookmark' }).click()
   await expect(page.getByRole('button', { name: 'Remove bookmark' })).toBeVisible()
 })

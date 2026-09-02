@@ -8,6 +8,7 @@ import {
   useAddJobPosting,
   useJobPostings,
   useUpdateJobPosting,
+  type JobPosting,
   type JobPostingManualIn,
 } from '../features/jobs/hooks'
 
@@ -18,8 +19,116 @@ interface ManualForm {
   description: string
 }
 
+interface Structured {
+  employment_type?: string | null
+  remote?: boolean | null
+  salary_min?: number | null
+  salary_max?: number | null
+  required_skills?: string[]
+  preferred_skills?: string[]
+  description?: string
+  apply_url?: string | null
+}
+
 function score(value: number | null): string {
   return value === null ? '—' : `${Math.round(value)}`
+}
+
+const yen = (n: number) => `¥${n.toLocaleString()}`
+
+function salaryLine(s: Structured): string | null {
+  if (s.salary_min != null && s.salary_max != null)
+    return `${yen(s.salary_min)}–${yen(s.salary_max)}`
+  if (s.salary_min != null) return `from ${yen(s.salary_min)}`
+  if (s.salary_max != null) return `up to ${yen(s.salary_max)}`
+  return null
+}
+
+function JobRow({ job, onBookmark }: { job: JobPosting; onBookmark: () => void }) {
+  const [open, setOpen] = useState(false)
+  const s = (job.structured ?? {}) as Structured
+  const salary = salaryLine(s)
+
+  return (
+    <li className="py-3">
+      <div className="flex items-center justify-between gap-4">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="min-w-0 flex-1 text-left"
+        >
+          <p className="truncate font-medium">{job.canonical_title}</p>
+          <p className="truncate text-sm text-neutral-500">
+            {job.company_name}
+            {job.location_normalized ? ` · ${job.location_normalized}` : ''}
+            {s.remote ? ' · remote' : ''}
+          </p>
+        </button>
+        <div className="flex shrink-0 items-center gap-3 text-sm">
+          <span className="tabular-nums text-neutral-500" title="Match score">
+            {score(job.match_score)}
+          </span>
+          <button
+            type="button"
+            aria-label={job.bookmarked ? 'Remove bookmark' : 'Bookmark'}
+            onClick={onBookmark}
+            className="text-lg leading-none"
+          >
+            {job.bookmarked ? '★' : '☆'}
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div className="mt-3 space-y-3 rounded-md bg-neutral-50 p-4 text-sm dark:bg-neutral-900">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-neutral-600 dark:text-neutral-400">
+            {s.employment_type && (
+              <>
+                <dt className="font-medium">Type</dt>
+                <dd>{s.employment_type}</dd>
+              </>
+            )}
+            {salary && (
+              <>
+                <dt className="font-medium">Salary</dt>
+                <dd>{salary}</dd>
+              </>
+            )}
+            {s.required_skills && s.required_skills.length > 0 && (
+              <>
+                <dt className="font-medium">Must have</dt>
+                <dd>{s.required_skills.join(', ')}</dd>
+              </>
+            )}
+            {s.preferred_skills && s.preferred_skills.length > 0 && (
+              <>
+                <dt className="font-medium">Nice to have</dt>
+                <dd>{s.preferred_skills.join(', ')}</dd>
+              </>
+            )}
+          </dl>
+          {s.description ? (
+            <p className="whitespace-pre-wrap text-neutral-700 dark:text-neutral-300">
+              {s.description}
+            </p>
+          ) : (
+            <p className="text-neutral-500">No description.</p>
+          )}
+          {s.apply_url && (
+            <a
+              href={s.apply_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block text-sky-600 hover:underline"
+            >
+              Open posting ↗
+            </a>
+          )}
+        </div>
+      )}
+    </li>
+  )
 }
 
 export function JobsPage() {
@@ -114,30 +223,13 @@ export function JobsPage() {
         )}
         <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
           {jobs.data?.map((job) => (
-            <li key={job.id} className="flex items-center justify-between gap-4 py-3">
-              <div className="min-w-0">
-                <p className="truncate font-medium">{job.canonical_title}</p>
-                <p className="truncate text-sm text-neutral-500">
-                  {job.company_name}
-                  {job.location_normalized ? ` · ${job.location_normalized}` : ''}
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-3 text-sm">
-                <span className="tabular-nums text-neutral-500" title="Match score">
-                  {score(job.match_score)}
-                </span>
-                <button
-                  type="button"
-                  aria-label={job.bookmarked ? 'Remove bookmark' : 'Bookmark'}
-                  onClick={() =>
-                    update.mutate({ id: job.id, body: { bookmarked: !job.bookmarked } })
-                  }
-                  className="text-lg leading-none"
-                >
-                  {job.bookmarked ? '★' : '☆'}
-                </button>
-              </div>
-            </li>
+            <JobRow
+              key={job.id}
+              job={job}
+              onBookmark={() =>
+                update.mutate({ id: job.id, body: { bookmarked: !job.bookmarked } })
+              }
+            />
           ))}
         </ul>
       </section>
