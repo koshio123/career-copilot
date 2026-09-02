@@ -10,55 +10,46 @@ roadmap.
 ## Architecture (target)
 
 ```mermaid
-flowchart LR
-    user([User])
+C4Container
+    title Container diagram — Career Copilot (target)
 
-    subgraph Frontend
-        spa["Vite + React SPA<br/>S3 + CloudFront"]
-    end
+    Person(user, "User", "Job seeker, using the app for their own search")
 
-    subgraph Backend
-        api["FastAPI<br/>Lambda + API Gateway"]
-        dispatch["Dispatcher Lambda<br/>EventBridge Scheduler"]
-    end
+    System_Boundary(cc, "Career Copilot") {
+        Container(spa, "SPA", "Vite + React, S3 + CloudFront", "Résumés, job list, gap analysis, Before/After UI")
+        Container(api, "API", "FastAPI, Lambda + API Gateway", "Auth, CRUD, orchestration, enqueues async work")
+        Container(dispatch, "Scheduler dispatcher", "Lambda, EventBridge Scheduler", "Enqueues job_sources that are due for a fetch")
 
-    subgraph Queue["SQS (+ DLQ)"]
-        qdef[["default queue"]]
-        qbrowser[["browser queue"]]
-    end
+        ContainerQueue(queue, "Task queues", "SQS: default + browser, with DLQ")
+        Container(short, "Short-job worker", "Lambda", "Résumé / job structuring, gap analysis via LLM")
+        Container(browser, "Browser-crawl worker", "Fargate, Playwright", "Renders JS pages, extracts posting text (path C)")
 
-    subgraph Workers
-        short["Short jobs<br/>résumé · structuring · analysis<br/>Lambda"]
-        browser["Browser crawl<br/>Playwright<br/>Fargate"]
-    end
+        ContainerDb(pg, "Relational store", "PostgreSQL, RDS", "Users, résumés, jobs, applications, analysis, usage")
+        ContainerDb(ddb, "Auth store", "DynamoDB, TTL", "Sessions, OTP challenges, rate limits")
+        ContainerDb(s3, "Object store", "S3", "Résumé files, raw fetched HTML")
+    }
 
-    subgraph Data
-        pg[("PostgreSQL<br/>RDS")]
-        ddb[("DynamoDB<br/>sessions · OTP · rate-limit")]
-        s3[("S3<br/>résumé files · raw HTML")]
-    end
+    System_Ext(claude, "Anthropic API", "LLM structuring and analysis")
+    System_Ext(sources, "Job sources", "ATS public APIs, JSON-LD, career pages")
+    System_Ext(ses, "Amazon SES", "Delivers email OTP codes")
 
-    subgraph External
-        claude["Anthropic API"]
-        sources["ATS public APIs<br/>JSON-LD · career pages"]
-        ses["SES<br/>email OTP"]
-    end
+    Rel(user, spa, "Uses")
+    Rel(spa, api, "Calls /api")
+    Rel(api, pg, "CRUD")
+    Rel(api, ddb, "Sessions, OTP")
+    Rel(api, s3, "Presigned URLs")
+    Rel(api, ses, "OTP mail")
+    Rel(api, queue, "Enqueues tasks")
+    Rel(dispatch, queue, "Enqueues due sources")
+    Rel(queue, short, "Delivers jobs")
+    Rel(queue, browser, "Delivers crawl jobs")
+    Rel(short, claude, "Structured prompts")
+    Rel(short, pg, "Writes results")
+    Rel(browser, sources, "Fetches postings")
+    Rel(browser, s3, "Stores raw HTML")
+    Rel(browser, queue, "Extracted text")
 
-    user --> spa
-    spa -- "/api" --> api
-    api --> pg & ddb & s3 & ses
-    api -- enqueue --> qdef
-    dispatch -- due job_sources --> qdef & qbrowser
-    qdef --> short
-    qbrowser --> browser
-    short --> claude & pg
-    browser --> sources & s3
-    browser -- extracted text --> qdef
-
-    classDef store fill:#eef2ff,stroke:#818cf8,color:#312e81;
-    classDef ext fill:#f4f4f5,stroke:#a1a1aa,color:#27272a;
-    class pg,ddb,s3 store;
-    class claude,sources,ses ext;
+    UpdateLayoutConfig($c4ShapeInRow="2", $c4BoundaryInRow="1")
 ```
 
 Rationale for the main choices lives in `docs/adr/`.
