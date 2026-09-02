@@ -6,7 +6,8 @@ from app.models import JobPreference
 
 
 def _job(**kw: object) -> JobStructured:
-    return JobStructured(title="Engineer", company_name="Acme", **kw)
+    kw.setdefault("title", "Engineer")
+    return JobStructured(company_name="Acme", **kw)
 
 
 def test_no_prefs_keeps_everything() -> None:
@@ -19,6 +20,18 @@ def test_employment_type_mismatch_is_dropped() -> None:
     assert rejection_reason(_job(employment_type="Full-time"), prefs) is None
     # unknown employment type on the job → keep (borderline goes to the LLM)
     assert rejection_reason(_job(), prefs) is None
+
+
+def test_off_family_title_without_role_overlap_is_dropped() -> None:
+    prefs = JobPreference(desired_roles=["Backend Engineer", "Platform Engineer"])
+    assert rejection_reason(_job(title="Sales Development Representative"), prefs) is not None
+    assert rejection_reason(_job(title="Technical Recruiter"), prefs) is not None
+    # shares "engineer" → keep even though "sales" appears
+    assert rejection_reason(_job(title="Sales Engineer"), prefs) is None
+    # no off-family word, no overlap → ambiguous, keep for the LLM
+    assert rejection_reason(_job(title="Software Developer"), prefs) is None
+    # no desired roles set → never drop on family
+    assert rejection_reason(_job(title="Recruiter"), None) is None
 
 
 def test_remote_required_vs_onsite() -> None:

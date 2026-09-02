@@ -40,8 +40,11 @@ single object, `@graph`, lists; HTML-entity unescape; JPY `baseSalary`;
 an LLM call:
 - `JobIngestPipeline.resolve()` — robots → fetch → classify (A→B) → per job:
   diff-gate (`content_hash` vs. stored `raw_text_hash`), rule filter
-  (`app/jobs/filter.py`: obvious employment-type / remote mismatch only), LLM
-  match score (`app/jobs/matching.py`), threshold gate.
+  (`app/jobs/filter.py`: obvious employment-type / remote mismatch, plus a
+  role-family check — a title in a clearly different function like sales or
+  recruiting, sharing no word with the user's desired roles, is dropped before
+  the LLM; the main cost lever on a big board), LLM match score
+  (`app/jobs/matching.py`), threshold gate.
 - `persist()` — one transaction: upsert `jobs` + cluster into `job_postings`
   (dedup key `vendor:external_id` or the ADR-0009 hash), keep the best-scored
   view, prune jobs the source no longer lists and now-orphan postings (manual

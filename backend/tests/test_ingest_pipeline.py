@@ -97,11 +97,24 @@ async def test_below_threshold_is_not_saved(db: AsyncSession) -> None:
     user, source = await _user_and_source(db, with_prefs=True)
     llm = FakeLlmClient(data={"score": 12, "rationale": "no", "matched": [], "concerns": []})
 
-    resolved, result = await _run(db, source, user, _fetcher(_gh_api("Sales Rep")), llm)
+    # title passes the rule filter (shares "engineer"), but the LLM scores it low
+    resolved, result = await _run(db, source, user, _fetcher(_gh_api("Data Engineer")), llm)
 
     assert resolved.below_threshold == 1
     assert result.saved == 0
     assert (await db.execute(select(Job))).first() is None
+
+
+async def test_off_family_job_is_rule_filtered_without_llm(db: AsyncSession) -> None:
+    user, source = await _user_and_source(db, with_prefs=True)  # desired: Backend Engineer
+    llm = FakeLlmClient(data={"score": 99, "rationale": "x", "matched": [], "concerns": []})
+
+    resolved, result = await _run(db, source, user, _fetcher(_gh_api("Technical Recruiter")), llm)
+
+    assert resolved.filtered == 1
+    assert resolved.below_threshold == 0
+    assert result.saved == 0
+    assert (await db.execute(select(LlmUsage))).first() is None  # no LLM call
 
 
 async def test_no_prefs_saves_without_scoring(db: AsyncSession) -> None:
