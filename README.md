@@ -9,13 +9,56 @@ roadmap.
 
 ## Architecture (target)
 
-```
-Vite/React SPA  ──/api──►  FastAPI (Lambda + API Gateway)  ──►  PostgreSQL (RDS)
-   (S3 + CloudFront)              │
-                                 ├─► SQS ─► short jobs        (Lambda)
-                                 └─► SQS ─► browser crawl jobs (Fargate)
-                                              │
-                                    Anthropic API, ATS public APIs, career pages
+```mermaid
+flowchart LR
+    user([User])
+
+    subgraph Frontend
+        spa["Vite + React SPA<br/>S3 + CloudFront"]
+    end
+
+    subgraph Backend
+        api["FastAPI<br/>Lambda + API Gateway"]
+        dispatch["Dispatcher Lambda<br/>EventBridge Scheduler"]
+    end
+
+    subgraph Queue["SQS (+ DLQ)"]
+        qdef[["default queue"]]
+        qbrowser[["browser queue"]]
+    end
+
+    subgraph Workers
+        short["Short jobs<br/>résumé · structuring · analysis<br/>Lambda"]
+        browser["Browser crawl<br/>Playwright<br/>Fargate"]
+    end
+
+    subgraph Data
+        pg[("PostgreSQL<br/>RDS")]
+        ddb[("DynamoDB<br/>sessions · OTP · rate-limit")]
+        s3[("S3<br/>résumé files · raw HTML")]
+    end
+
+    subgraph External
+        claude["Anthropic API"]
+        sources["ATS public APIs<br/>JSON-LD · career pages"]
+        ses["SES<br/>email OTP"]
+    end
+
+    user --> spa
+    spa -- "/api" --> api
+    api --> pg & ddb & s3 & ses
+    api -- enqueue --> qdef
+    dispatch -- due job_sources --> qdef & qbrowser
+    qdef --> short
+    qbrowser --> browser
+    short --> claude & pg
+    browser --> sources & s3
+    browser -- extracted text --> qdef
+
+    classDef store fill:#eef2ff,stroke:#818cf8,color:#312e81;
+    classDef ext fill:#f4f4f5,stroke:#a1a1aa,color:#27272a;
+    class pg,ddb,s3 store;
+    class claude,sources,ses ext;
 ```
 
 Rationale for the main choices lives in `docs/adr/`.
@@ -26,16 +69,16 @@ Rationale for the main choices lives in `docs/adr/`.
 |---|---|
 | `backend/` | FastAPI API **and** async worker handlers (one Python project) |
 | `frontend/` | Vite + React SPA |
-| `infra/terraform/` | AWS infrastructure (Terraform) |
+| `infra/terraform/` | AWS infrastructure (Terraform) — real modules land in Phase 10 |
 | `infra/localstack/` | LocalStack root module for local AWS emulation |
 | `scripts/` | dev/ops helpers |
-| `docs/` | plan, ADRs, data model, development log |
+| `docs/` | plan, ADRs, data model, development log, local/manual testing guides |
 
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (Python 3.13)
 - Node 24 (Active LTS) + pnpm (`corepack enable pnpm`)
-- Docker (Postgres + LocalStack)
+- Docker (Postgres + LocalStack + MailHog)
 - Terraform (for `infra/`)
 
 ## Getting started
@@ -98,5 +141,5 @@ error cases, inspecting DynamoDB/MailHog): `docs/manual-testing.md`.
 | `make openapi` | regenerate `backend/openapi.json` + frontend API types |
 | `make seed` | load a minimal dev dataset |
 | `cd frontend && pnpm e2e` | Playwright end-to-end tests |
-| `make worker` | run the async worker loop locally (Phase 04+) |
+| `make worker` | run the async worker loop locally (needs `make up`) |
 | `make help` | list all targets |
