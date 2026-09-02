@@ -90,6 +90,7 @@ async def job_source_fetch(payload: dict[str, Any]) -> None:
         saved=persisted.saved,
         filtered=resolved.filtered,
         below_threshold=resolved.below_threshold,
+        scoring_failed=resolved.scoring_failed,
         pruned=persisted.pruned,
     )
     # ServiceUnavailableError (LLM outage) propagates → queue retry → DLQ.

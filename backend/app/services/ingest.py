@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import structlog
+from pydantic import ValidationError
 
 from app.core.config import settings
 from app.ingest.ats import get_adapter
@@ -62,6 +63,7 @@ class ResolvedIngest:
     unchanged: int = 0
     filtered: int = 0
     below_threshold: int = 0
+    scoring_failed: int = 0
     keep: list[ScoredJob] = field(default_factory=list)
     # job identities that should remain in the DB after this run: freshly kept
     # jobs plus unchanged ones. Anything else held for the source is pruned
@@ -159,7 +161,14 @@ class JobIngestPipeline:
         outcome: MatchOutcome | None = None
         usage: StructuredResult | None = None
         if prefs is not None:
-            outcome, usage = await score_match(prefs, job.structured, llm=self._llm)
+            try:
+                outcome, usage = await score_match(prefs, job.structured, llm=self._llm)
+            except ValidationError as exc:
+                # The model returned a shape we can't use even after coercion.
+                # Skip this job rather than failing (and retrying) the whole fetch.
+                log.info("ingest.score_unusable", url=job.url, error=str(exc))
+                out.scoring_failed += 1
+                return
             if outcome.score < self._threshold:
                 out.below_threshold += 1
                 return

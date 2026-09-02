@@ -39,3 +39,22 @@ async def test_score_match_returns_outcome_and_usage() -> None:
     assert outcome.score == 82
     assert outcome.concerns == ["salary not stated"]
     assert usage.input_tokens == 100
+
+
+async def test_score_match_tolerates_shape_drift() -> None:
+    llm = FakeLlmClient(
+        data={
+            "score": "73",  # string
+            "rationale": "ok",
+            "matched": "role fits",  # single string, not a list
+            "concerns": None,
+        }
+    )
+    prefs = JobPreference(desired_roles=["Backend Engineer"])
+    job = JobStructured(title="Backend Engineer", company_name="Acme")
+
+    outcome, _ = await score_match(prefs, job, llm=llm)  # type: ignore[arg-type]
+
+    assert outcome.score == 73
+    assert outcome.matched == ["role fits"]
+    assert outcome.concerns == []

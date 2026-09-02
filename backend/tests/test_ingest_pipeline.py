@@ -105,6 +105,18 @@ async def test_below_threshold_is_not_saved(db: AsyncSession) -> None:
     assert (await db.execute(select(Job))).first() is None
 
 
+async def test_unusable_llm_score_skips_the_job_not_the_fetch(db: AsyncSession) -> None:
+    user, source = await _user_and_source(db, with_prefs=True)
+    llm = FakeLlmClient(data={"rationale": "forgot the score"})  # no `score` → ValidationError
+
+    resolved, result = await _run(db, source, user, _fetcher(_gh_api("Backend Engineer")), llm)
+
+    assert resolved.ok
+    assert resolved.scoring_failed == 1
+    assert result.saved == 0
+    assert (await db.execute(select(Job))).first() is None
+
+
 async def test_off_family_job_is_rule_filtered_without_llm(db: AsyncSession) -> None:
     user, source = await _user_and_source(db, with_prefs=True)  # desired: Backend Engineer
     llm = FakeLlmClient(data={"score": 99, "rationale": "x", "matched": [], "concerns": []})

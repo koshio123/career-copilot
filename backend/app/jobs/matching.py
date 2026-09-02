@@ -60,6 +60,6 @@ async def score_match(
         schema=MATCH_TOOL_SCHEMA,
         tool_name="score_match",
         system=MATCH_SYSTEM,
-        max_tokens=1024,
+        max_tokens=2500,
     )
     return MatchOutcome.model_validate(result.data), result

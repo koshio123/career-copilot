@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.enums import SourceType
 
@@ -43,10 +43,30 @@ class FetchedJob(BaseModel):
 
 
 class MatchOutcome(BaseModel):
+    """Tolerant of the model's occasional shape drift: string score, or
+    matched/concerns handed back as a single string instead of a list."""
+
     score: int = Field(ge=0, le=100)
-    rationale: str
+    rationale: str = ""
     matched: list[str] = Field(default_factory=list)
     concerns: list[str] = Field(default_factory=list)
+
+    @field_validator("score", mode="before")
+    @classmethod
+    def _coerce_score(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            digits = "".join(c for c in v if c.isdigit())
+            return int(digits) if digits else 0
+        return v
+
+    @field_validator("matched", "concerns", mode="before")
+    @classmethod
+    def _listify(cls, v: Any) -> Any:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v] if v.strip() else []
+        return v
 
 
 MATCH_TOOL_SCHEMA: dict[str, Any] = {
@@ -70,15 +90,15 @@ MATCH_TOOL_SCHEMA: dict[str, Any] = {
         "matched": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Preference points this job satisfies.",
+            "description": "Short phrases — preference points this job satisfies.",
         },
         "concerns": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Preference points this job misses or leaves unclear.",
+            "description": "Short phrases — preference points this job misses or leaves unclear.",
         },
     },
-    "required": ["score", "rationale", "matched", "concerns"],
+    "required": ["score", "rationale"],
 }
 
 MATCH_SYSTEM = (
