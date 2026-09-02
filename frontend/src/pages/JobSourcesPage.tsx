@@ -24,9 +24,11 @@ function statusLine(s: JobSource): string {
 }
 
 export function JobSourcesPage() {
-  const sources = useJobSources()
+  const [pollUntil, setPollUntil] = useState(0)
+  const bump = () => setPollUntil(Date.now() + 20_000)
+  const sources = useJobSources(pollUntil)
   const add = useAddJobSource()
-  const actions = useJobSourceActions()
+  const actions = useJobSourceActions(bump)
   const [url, setUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -35,6 +37,7 @@ export function JobSourcesPage() {
     try {
       await add.mutateAsync({ url })
       setUrl('')
+      bump()
     } catch (e) {
       setError((e as ApiError).detail)
     }

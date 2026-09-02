@@ -13,15 +13,19 @@ const JOBS = ['jobs']
 
 // --- sources ---------------------------------------------------------------
 
-export function useJobSources() {
+export function useJobSources(pollUntil = 0) {
   return useQuery({
     queryKey: SOURCES,
     queryFn: () => api.GET('/api/v1/job-sources').then(unwrap),
-    // a freshly added source is fetched by the worker within a few seconds
-    refetchInterval: (query) =>
-      query.state.data?.some((s) => s.last_fetched_at === null && s.status === 'active')
-        ? 3000
-        : false,
+    // The worker fetches out of band, so poll for a bit after any action
+    // (add / fetch-now / resume) and while a source has never been fetched.
+    refetchInterval: (query) => {
+      if (Date.now() < pollUntil) return 2000
+      const waiting = query.state.data?.some(
+        (s) => s.last_fetched_at === null && s.status === 'active',
+      )
+      return waiting ? 3000 : false
+    },
   })
 }
 
@@ -47,28 +51,31 @@ function sourceAction(
   return (source_id: string) => api.POST(path, { params: { path: { source_id } } }).then(unwrap)
 }
 
-export function useJobSourceActions() {
+export function useJobSourceActions(onChange: () => void = () => {}) {
   const qc = useQueryClient()
-  const invalidate = () => qc.invalidateQueries({ queryKey: SOURCES })
+  const done = () => {
+    void qc.invalidateQueries({ queryKey: SOURCES })
+    onChange()
+  }
   return {
     pause: useMutation({
       mutationFn: sourceAction('/api/v1/job-sources/{source_id}/pause'),
-      onSuccess: invalidate,
+      onSuccess: done,
     }),
     resume: useMutation({
       mutationFn: sourceAction('/api/v1/job-sources/{source_id}/resume'),
-      onSuccess: invalidate,
+      onSuccess: done,
     }),
     fetchNow: useMutation({
       mutationFn: sourceAction('/api/v1/job-sources/{source_id}/fetch'),
-      onSuccess: invalidate,
+      onSuccess: done,
     }),
     remove: useMutation({
       mutationFn: (source_id: string) =>
         api
           .DELETE('/api/v1/job-sources/{source_id}', { params: { path: { source_id } } })
           .then(unwrap),
-      onSuccess: invalidate,
+      onSuccess: done,
     }),
   }
 }
