@@ -165,6 +165,17 @@ async def test_disappeared_job_is_pruned(db: AsyncSession) -> None:
     assert len((await db.execute(select(JobPosting))).scalars().all()) == 1
 
 
+async def test_direct_ats_url_skips_robots_and_page_fetch(db: AsyncSession) -> None:
+    user, source = await _user_and_source(db, with_prefs=False)
+    fetcher = _fetcher(_gh_api("Backend Engineer"))
+
+    resolved, _ = await _run(db, source, user, fetcher, FakeLlmClient())
+
+    assert resolved.route == "ats"
+    # only the ATS API was hit — no robots.txt, no careers-page HTML
+    assert all("boards-api.greenhouse.io" in u for u in fetcher.requested)
+
+
 async def test_unreachable_source_reports_error(db: AsyncSession) -> None:
     user, source = await _user_and_source(db, with_prefs=False)
     fetcher = FakePoliteFetcher({})  # nothing canned → FetchError

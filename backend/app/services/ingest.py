@@ -90,53 +90,72 @@ class JobIngestPipeline:
     ) -> ResolvedIngest:
         out = ResolvedIngest()
 
-        decision = None
-        with contextlib.suppress(FetchError):
-            decision = await self._fetcher.check_robots(source_url)
-        if decision is not None and not decision.allowed:
-            out.robots_state = RobotsState.DISALLOWED
-            out.error = "robots.txt disallows this URL — add the job pages manually."
-            out.needs_manual = True
+        # Route A when the URL itself is an ATS board: skip robots + the page
+        # fetch entirely (ADR-0013 exempts ATS APIs) and go straight to the API.
+        jobs = await self._try_ats_from_url(source_url, out)
+        if out.route is None:
+            jobs = await self._classify_page(source_url, out)
+        if out.error is not None:
             return out
-        out.robots_state = decision.state if decision else RobotsState.UNKNOWN
-
-        try:
-            page = await self._fetcher.fetch(source_url)
-        except FetchError as exc:
-            out.error = f"Couldn't fetch the page: {exc}"
-            return out
-        if page.status_code >= 400:
-            out.error = f"The page returned HTTP {page.status_code}."
-            return out
-
-        jobs, out.route, out.ats_vendor = await self._classify(page.text, str(page.url))
-        out.fetched = len(jobs)
         if out.route is None:
             out.error = "Couldn't identify job listings on this page — add the roles manually."
             out.needs_manual = True
             return out
 
+        out.fetched = len(jobs)
         for job in jobs:
             await self._resolve_one(job, known_hashes, prefs, out)
         return out
 
-    async def _classify(
-        self, html: str, url: str
-    ) -> tuple[list[FetchedJob], str | None, str | None]:
-        match = detect_ats(url, html)
-        if match is not None:
-            adapter = get_adapter(match.vendor)
-            if adapter is not None:
-                try:
-                    jobs = await adapter.fetch(match.board_id, fetcher=self._fetcher)
-                    return jobs, "ats", match.vendor
-                except AtsError as exc:
-                    log.info("ingest.ats_failed", vendor=match.vendor, error=str(exc))
+    async def _try_ats_from_url(self, url: str, out: ResolvedIngest) -> list[FetchedJob]:
+        match = detect_ats(url)
+        adapter = get_adapter(match.vendor) if match is not None else None
+        if match is None or adapter is None:
+            return []
+        try:
+            jobs = await adapter.fetch(match.board_id, fetcher=self._fetcher)
+            out.route, out.ats_vendor = "ats", match.vendor
+            return jobs
+        except AtsError as exc:
+            log.info("ingest.ats_failed", vendor=match.vendor, error=str(exc))
+            return []  # fall through to a page fetch (embed / JSON-LD)
 
-        jsonld = extract_job_postings(html, base_url=url)
+    async def _classify_page(self, url: str, out: ResolvedIngest) -> list[FetchedJob]:
+        decision = None
+        with contextlib.suppress(FetchError):
+            decision = await self._fetcher.check_robots(url)
+        if decision is not None and not decision.allowed:
+            out.robots_state = RobotsState.DISALLOWED
+            out.error = "robots.txt disallows this URL — add the job pages manually."
+            out.needs_manual = True
+            return []
+        out.robots_state = decision.state if decision else RobotsState.UNKNOWN
+
+        try:
+            page = await self._fetcher.fetch(url)
+        except FetchError as exc:
+            out.error = f"Couldn't fetch the page: {exc}"
+            return []
+        if page.status_code >= 400:
+            out.error = f"The page returned HTTP {page.status_code}."
+            return []
+
+        final_url = str(page.url)
+        match = detect_ats(final_url, page.text)
+        adapter = get_adapter(match.vendor) if match is not None else None
+        if match is not None and adapter is not None:
+            try:
+                jobs = await adapter.fetch(match.board_id, fetcher=self._fetcher)
+                out.route, out.ats_vendor = "ats", match.vendor
+                return jobs
+            except AtsError as exc:
+                log.info("ingest.ats_failed", vendor=match.vendor, error=str(exc))
+
+        jsonld = extract_job_postings(page.text, base_url=final_url)
         if jsonld:
-            return jsonld, "json_ld", None
-        return [], None, None  # route C is part 2b
+            out.route = "json_ld"
+            return jsonld
+        return []  # route C is part 2b
 
     async def _resolve_one(
         self,
