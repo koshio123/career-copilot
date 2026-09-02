@@ -50,22 +50,30 @@ function JobRow({ job, onBookmark }: { job: JobPosting; onBookmark: () => void }
   const salary = salaryLine(s)
 
   return (
-    <li className="py-3">
-      <div className="flex items-center justify-between gap-4">
+    <li className="py-1">
+      <div className="group flex items-center justify-between gap-4 rounded-md transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800/60">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="min-w-0 flex-1 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-2 pl-2 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
         >
-          <p className="truncate font-medium">{job.canonical_title}</p>
-          <p className="truncate text-sm text-neutral-500">
-            {job.company_name}
-            {job.location_normalized ? ` · ${job.location_normalized}` : ''}
-            {s.remote ? ' · remote' : ''}
-          </p>
+          <span
+            aria-hidden
+            className={`shrink-0 text-neutral-400 transition-transform group-hover:text-neutral-600 dark:group-hover:text-neutral-300 ${open ? 'rotate-90' : ''}`}
+          >
+            ▸
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate font-medium">{job.canonical_title}</span>
+            <span className="block truncate text-sm text-neutral-500">
+              {job.company_name}
+              {job.location_normalized ? ` · ${job.location_normalized}` : ''}
+              {s.remote ? ' · remote' : ''}
+            </span>
+          </span>
         </button>
-        <div className="flex shrink-0 items-center gap-3 text-sm">
+        <div className="flex shrink-0 items-center gap-3 pr-2 text-sm">
           <span className="tabular-nums text-neutral-500" title="Match score">
             {score(job.match_score)}
           </span>
