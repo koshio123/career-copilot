@@ -56,8 +56,10 @@ async def job_source_fetch(payload: dict[str, Any]) -> None:
         pipeline = JobIngestPipeline(fetcher=fetcher, llm=llm)
         resolved = await pipeline.resolve(source_url=url, known_hashes=known, prefs=prefs)
 
+    # Persist whatever scored cleanly, even if the run later hit an error
+    # (e.g. LLM credits ran out mid-board) — don't waste the calls already made.
     persisted = PersistResult()
-    if resolved.ok:
+    if resolved.ok or resolved.keep:
         async with sm() as session, session.begin():
             repo = JobIngestRepository(session, user_id=user_id)
             persisted = await persist(repo, source_id=source_id, resolved=resolved, llm=llm)

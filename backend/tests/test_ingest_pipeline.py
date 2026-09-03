@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,7 +60,7 @@ async def _run(  # type: ignore[no-untyped-def]
     source: JobSource,
     user: User,
     fetcher: FakePoliteFetcher,
-    llm: FakeLlmClient,
+    llm: Any,
 ):
     prefs = (
         await db.execute(select(JobPreference).where(JobPreference.user_id == user.id))
@@ -67,12 +69,7 @@ async def _run(  # type: ignore[no-untyped-def]
     known = await repo.known_hashes(source.id)
     pipeline = JobIngestPipeline(fetcher=fetcher, llm=llm)  # type: ignore[arg-type]
     resolved = await pipeline.resolve(source_url=source.url, known_hashes=known, prefs=prefs)
-    result = await persist(
-        repo,
-        source_id=source.id,
-        resolved=resolved,
-        llm=llm,  # type: ignore[arg-type]
-    )
+    result = await persist(repo, source_id=source.id, resolved=resolved, llm=llm)
     return resolved, result
 
 
@@ -163,6 +160,60 @@ async def test_disappeared_job_is_pruned(db: AsyncSession) -> None:
     remaining = (await db.execute(select(Job))).scalars().all()
     assert len(remaining) == 1
     assert len((await db.execute(select(JobPosting))).scalars().all()) == 1
+
+
+class _CreditsOutAfterOne:
+    """Scores the first job, then behaves like an exhausted credit balance."""
+
+    model = "fake"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def structured(self, **_: object):  # type: ignore[no-untyped-def]
+        from app.llm.client import LlmRequestError, StructuredResult
+
+        self.calls += 1
+        if self.calls > 1:
+            raise LlmRequestError("Your credit balance is too low")
+        return StructuredResult(
+            data={"score": 80, "rationale": "ok"},
+            input_tokens=10,
+            output_tokens=5,
+            cost_usd=Decimal("0"),
+        )
+
+    def usage_row(self, result, **fields):  # type: ignore[no-untyped-def]
+        from app.models import LlmUsage
+
+        return LlmUsage(purpose=fields.get("purpose", "job_match"), model=self.model)
+
+
+async def test_partial_credit_outage_saves_what_scored_and_does_not_prune(
+    db: AsyncSession,
+) -> None:
+    user, source = await _user_and_source(db, with_prefs=True)
+    # a pre-existing job from an earlier run that this run won't get to re-score
+    db.add(
+        Job(
+            user_id=user.id,
+            job_source_id=source.id,
+            url="https://old",
+            external_id="old",
+            source_type="ats",
+            raw_text_hash="stale",
+        )
+    )
+    await db.flush()
+    llm = _CreditsOutAfterOne()
+
+    resolved, result = await _run(db, source, user, _fetcher(_gh_api("Eng A", "Eng B")), llm)
+
+    assert resolved.error is not None and "credit balance" in resolved.error
+    assert result.saved == 1  # the one that scored before the outage
+    assert result.pruned == 0  # incomplete run never prunes
+    remaining = {j.external_id for j in (await db.execute(select(Job))).scalars().all()}
+    assert "old" in remaining  # the un-reached pre-existing job is kept
 
 
 async def test_direct_ats_url_skips_robots_and_page_fetch(db: AsyncSession) -> None:

@@ -95,6 +95,8 @@ class Settings(BaseSettings):
     # are not saved (CLAUDE.local.md §4.2 step 9). Starts middling; tune down if
     # good roles are being dropped.
     match_score_threshold: int = 30
+    # How many jobs to LLM-score at once during one source fetch.
+    job_scoring_concurrency: int = 4
 
     # --- LLM (Phase 04) ---
     anthropic_api_key: str | None = None

@@ -13,6 +13,7 @@ Split so a DB transaction is never held across an LLM call:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import uuid
 from dataclasses import dataclass, field
@@ -23,6 +24,7 @@ import structlog
 from pydantic import ValidationError
 
 from app.core.config import settings
+from app.core.errors import ServiceUnavailableError
 from app.ingest.ats import get_adapter
 from app.ingest.ats.base import AtsError
 from app.ingest.detect import detect_ats
@@ -35,12 +37,20 @@ from app.jobs.matching import score_match
 from app.jobs.normalize import dedup_key as fallback_dedup_key
 from app.jobs.normalize import normalize_company, normalize_text
 from app.jobs.schema import FetchedJob, MatchOutcome
-from app.llm import LlmClient, StructuredResult
+from app.llm import LlmClient, LlmRequestError, StructuredResult
 from app.models import Job, JobPosting, JobPreference
 from app.models.enums import RobotsState
 from app.repositories.jobs import JobIngestRepository
 
 log = structlog.get_logger(__name__)
+
+
+@dataclass(slots=True)
+class _Pending:
+    job: FetchedJob
+    canonical: str
+    digest: str
+    identity: str
 
 
 @dataclass(slots=True)
@@ -103,9 +113,68 @@ class JobIngestPipeline:
             return out
 
         out.fetched = len(jobs)
+
+        # Cheap, sequential gates first (diff + rule filter), then score whatever
+        # survives — concurrently, so a big board isn't dozens of serial LLM calls.
+        pending: list[_Pending] = []
         for job in jobs:
-            await self._resolve_one(job, known_hashes, prefs, out)
+            canonical = canonical_text(job.structured)
+            digest = content_hash(canonical)
+            identity = job.external_id or job.url
+            if known_hashes.get(identity) == digest:
+                out.unchanged += 1
+                out.survivors.add(identity)
+                continue
+            if rejection_reason(job.structured, prefs) is not None:
+                out.filtered += 1
+                continue
+            pending.append(_Pending(job, canonical, digest, identity))
+
+        if prefs is None:
+            for p in pending:
+                out.keep.append(ScoredJob(p.job, p.canonical, p.digest, None, None))
+                out.survivors.add(p.identity)
+            return out
+
+        await self._score_all(pending, prefs, out)
         return out
+
+    async def _score_all(
+        self, pending: list[_Pending], prefs: JobPreference, out: ResolvedIngest
+    ) -> None:
+        sem = asyncio.Semaphore(settings.job_scoring_concurrency)
+        Scored = tuple[_Pending, MatchOutcome, StructuredResult]
+
+        async def run(p: _Pending) -> _Pending | Scored:
+            async with sem:
+                try:
+                    outcome, usage = await score_match(prefs, p.job.structured, llm=self._llm)
+                except ValidationError as exc:
+                    log.info("ingest.score_unusable", url=p.job.url, error=str(exc))
+                    return p  # a bare _Pending means "couldn't score this one"
+            return p, outcome, usage
+
+        for result in await asyncio.gather(*(run(p) for p in pending), return_exceptions=True):
+            if isinstance(result, LlmRequestError):
+                out.error = out.error or f"Job scoring is unavailable: {result}"
+                continue
+            if isinstance(result, ServiceUnavailableError):
+                out.error = out.error or (
+                    "Job scoring is temporarily unavailable — will retry on the next fetch."
+                )
+                continue
+            if isinstance(result, BaseException):
+                raise result
+            if isinstance(result, _Pending):
+                out.scoring_failed += 1
+                out.survivors.add(result.identity)  # keep an existing row we couldn't re-score
+                continue
+            p, outcome, usage = result
+            if outcome.score < self._threshold:
+                out.below_threshold += 1
+                continue
+            out.keep.append(ScoredJob(p.job, p.canonical, p.digest, outcome, usage))
+            out.survivors.add(p.identity)
 
     async def _try_ats_from_url(self, url: str, out: ResolvedIngest) -> list[FetchedJob]:
         match = detect_ats(url)
@@ -156,44 +225,6 @@ class JobIngestPipeline:
             out.route = "json_ld"
             return jsonld
         return []  # route C is part 2b
-
-    async def _resolve_one(
-        self,
-        job: FetchedJob,
-        known_hashes: dict[str, str],
-        prefs: JobPreference | None,
-        out: ResolvedIngest,
-    ) -> None:
-        canonical = canonical_text(job.structured)
-        digest = content_hash(canonical)
-        identity = job.external_id or job.url
-
-        if known_hashes.get(identity) == digest:
-            out.unchanged += 1
-            out.survivors.add(identity)
-            return
-
-        if rejection_reason(job.structured, prefs) is not None:
-            out.filtered += 1
-            return
-
-        outcome: MatchOutcome | None = None
-        usage: StructuredResult | None = None
-        if prefs is not None:
-            try:
-                outcome, usage = await score_match(prefs, job.structured, llm=self._llm)
-            except ValidationError as exc:
-                # The model returned a shape we can't use even after coercion.
-                # Skip this job rather than failing (and retrying) the whole fetch.
-                log.info("ingest.score_unusable", url=job.url, error=str(exc))
-                out.scoring_failed += 1
-                return
-            if outcome.score < self._threshold:
-                out.below_threshold += 1
-                return
-
-        out.keep.append(ScoredJob(job, canonical, digest, outcome, usage))
-        out.survivors.add(identity)
 
 
 def _payload(scored: ScoredJob) -> dict[str, object]:
@@ -270,13 +301,15 @@ async def persist(
 
     # Prune jobs the source no longer lists, and jobs that stopped matching
     # (plan step 9: not kept in the DB — re-fetched next run if prefs change).
-    pruned = 0
-    for row in await repo.jobs_for_source(source_id):
-        if (row.external_id or row.url) not in resolved.survivors:
-            await repo.delete_job(row)
-            pruned += 1
-    await repo.session.flush()
-    result.pruned = pruned + await repo.prune_orphan_postings()
+    # Skip pruning on an incomplete run: we can't tell "gone" from "not reached".
+    if resolved.error is None:
+        pruned = 0
+        for row in await repo.jobs_for_source(source_id):
+            if (row.external_id or row.url) not in resolved.survivors:
+                await repo.delete_job(row)
+                pruned += 1
+        await repo.session.flush()
+        result.pruned = pruned + await repo.prune_orphan_postings()
     return result
 
 

@@ -8,7 +8,7 @@ import pytest
 from anthropic.types import ToolUseBlock
 
 from app.core.errors import ServiceUnavailableError
-from app.llm.client import LlmClient
+from app.llm.client import LlmClient, LlmRequestError
 from app.llm.cost import estimate_cost_usd
 
 
@@ -68,6 +68,29 @@ async def test_api_error_maps_to_service_unavailable() -> None:
     client = LlmClient(client=FakeAnthropic(error=_FakeApiError()))  # type: ignore[arg-type]
 
     with pytest.raises(ServiceUnavailableError):
+        await client.structured(prompt="x", schema={"type": "object"})
+
+
+class _FakeStatusError(anthropic.APIStatusError):
+    def __init__(self, status_code: int, message: str = "boom") -> None:
+        Exception.__init__(self, message)
+        self.status_code = status_code
+        self.message = message
+        self.body = {"error": {"message": message}}
+
+
+@pytest.mark.parametrize("status", [429, 500, 529])
+async def test_transient_status_maps_to_service_unavailable(status: int) -> None:
+    client = LlmClient(client=FakeAnthropic(error=_FakeStatusError(status)))  # type: ignore[arg-type]
+    with pytest.raises(ServiceUnavailableError):
+        await client.structured(prompt="x", schema={"type": "object"})
+
+
+@pytest.mark.parametrize("status", [400, 401, 403])
+async def test_client_status_maps_to_non_retryable_request_error(status: int) -> None:
+    fake = FakeAnthropic(error=_FakeStatusError(status, "credit balance is too low"))
+    client = LlmClient(client=fake)  # type: ignore[arg-type]
+    with pytest.raises(LlmRequestError, match="credit balance"):
         await client.structured(prompt="x", schema={"type": "object"})
 
 

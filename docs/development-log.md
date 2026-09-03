@@ -38,21 +38,36 @@ single object, `@graph`, lists; HTML-entity unescape; JPY `baseSalary`;
 
 **Pipeline** (`app/services/ingest.py`) — two phases so no DB transaction spans
 an LLM call:
-- `JobIngestPipeline.resolve()` — robots → fetch → classify (A→B) → per job:
-  diff-gate (`content_hash` vs. stored `raw_text_hash`), rule filter
+- `JobIngestPipeline.resolve()` — classify then, per job: diff-gate
+  (`content_hash` vs. stored `raw_text_hash`) and rule filter
   (`app/jobs/filter.py`: obvious employment-type / remote mismatch, plus a
   role-family check — a title in a clearly different function like sales or
   recruiting, sharing no word with the user's desired roles, is dropped before
-  the LLM; the main cost lever on a big board), LLM match score
-  (`app/jobs/matching.py`), threshold gate.
+  the LLM; the main cost lever on a big board). Survivors are LLM-scored
+  (`app/jobs/matching.py`) **concurrently** (`APP_JOB_SCORING_CONCURRENCY`,
+  default 4) and threshold-gated.
+  - Classification prefers **route A from the URL alone** — a
+    `boards.greenhouse.io/<board>` URL goes straight to the API, skipping the
+    robots gate and the SPA-shell page fetch (ADR-0013 exempts ATS APIs). A
+    plain careers page still gets robots + page fetch for embed / JSON-LD.
 - `persist()` — one transaction: upsert `jobs` + cluster into `job_postings`
   (dedup key `vendor:external_id` or the ADR-0009 hash), keep the best-scored
   view, prune jobs the source no longer lists and now-orphan postings (manual
-  postings are never pruned).
+  postings are never pruned). Pruning is **skipped on an incomplete run** —
+  "gone" is indistinguishable from "not reached".
+
+**LLM error handling** — `LlmClient` splits Anthropic failures: 429 / 5xx /
+connection → `ServiceUnavailableError` (transient); other 4xx (bad request,
+auth, **exhausted credit balance**) → `LlmRequestError` (non-retryable). During
+a fetch, a per-job `ValidationError` (model returned an unusable shape even
+after `MatchOutcome`'s coercion) skips that one job; an `LlmRequestError` /
+`ServiceUnavailableError` stops scoring, records the reason on the source, and
+**still persists whatever scored** — the calls (and money) already spent aren't
+thrown away, and the run isn't retried into re-spending them.
 
 **Worker** — `job_source.fetch` rewritten: load state → resolve → persist →
 stamp `source_type` / `ats_vendor` / `last_success_at` / `last_error` on the
-source. LLM outage propagates → queue retry → DLQ.
+source.
 
 **Frontend** — a job row's expander now shows the match score, the LLM
 rationale and concerns, the route (`via greenhouse` / `json_ld`), and a
@@ -63,7 +78,7 @@ rationale and concerns, the route (`via greenhouse` / `json_ld`), and a
 | Gate | Result |
 |---|---|
 | `make lint` | ruff + mypy (136 files) ✓ ; eslint + tsc ✓ |
-| `make test` | pytest 129 ✓ ; vitest 8 ✓ ; coverage 92% |
+| `make test` | pytest 143 ✓ ; vitest 8 ✓ ; coverage 92% |
 | `pnpm run e2e` | 5 Playwright specs ✓ |
 | `alembic check` | no drift (no schema change) |
 | pipeline tests | Greenhouse fixture → score → save; below-threshold dropped; no-prefs saved unscored; unchanged skipped; disappeared pruned; unreachable / robots-blocked reported |
