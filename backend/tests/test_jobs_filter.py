@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from app.jobs.filter import passes_primary_filter, rejection_reason
+import pytest
+
+from app.core.config import settings
+from app.jobs.filter import (
+    passes_primary_filter,
+    rejection_reason,
+    title_matches_desired_roles,
+)
 from app.jobs.schema import JobStructured
 from app.models import JobPreference
 
@@ -8,6 +15,37 @@ from app.models import JobPreference
 def _job(**kw: object) -> JobStructured:
     kw.setdefault("title", "Engineer")
     return JobStructured(company_name="Acme", **kw)
+
+
+@pytest.mark.parametrize(
+    ("title", "roles", "expected"),
+    [
+        ("Senior Backend Engineer", ["Backend Engineer"], True),
+        ("Engineering Manager", ["Backend Engineer"], True),  # engineer ~ engineering
+        ("Staff Software Developer", ["Software Developer"], True),
+        ("Product Manager", ["Backend Engineer"], False),
+        ("Data Scientist", ["Backend Engineer", "Platform Engineer"], False),
+    ],
+)
+def test_title_matches_desired_roles(title: str, roles: list[str], expected: bool) -> None:
+    assert title_matches_desired_roles(title, roles) is expected
+
+
+def test_strict_mode_drops_titles_that_dont_match_desired_roles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "job_title_match_mode", "strict")
+    prefs = JobPreference(desired_roles=["Backend Engineer"])
+    assert rejection_reason(_job(title="Product Manager"), prefs) is not None
+    assert rejection_reason(_job(title="Senior Backend Engineer"), prefs) is None
+    # no desired roles → strict mode can't filter on title
+    assert rejection_reason(_job(title="Product Manager"), JobPreference()) is None
+
+
+def test_off_mode_disables_title_filtering(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "job_title_match_mode", "off")
+    prefs = JobPreference(desired_roles=["Backend Engineer"])
+    assert rejection_reason(_job(title="Sales Development Representative"), prefs) is None
 
 
 def test_no_prefs_keeps_everything() -> None:

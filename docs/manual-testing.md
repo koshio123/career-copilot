@@ -392,8 +392,14 @@ curl -s -c $J -b $J -X POST localhost:8000/api/v1/jobs \
   -d '{"company_name":"Acme","title":"Backend Engineer","location":"Tokyo"}'
 ```
 
-閾値の調整：`backend/.env` に `APP_MATCH_SCORE_THRESHOLD=0` を入れると全件保存され、
-LLM が付けたスコアを確認しながら絞れる。
+コスト・件数の調整（`backend/.env`、`make api`/`make worker` 再起動）:
+
+- `APP_MATCH_SCORE_THRESHOLD=0` — 全件保存。LLM が付けたスコアを見ながら絞る
+- `APP_JOB_TITLE_MATCH_MODE=strict` — Preferences の「desired roles」のキーワードに
+  タイトルが一致する求人だけを LLM スコアリング。大規模ボードで engineering 隣接職
+  （PM / デザイン / データ等）まで採点したくないとき。`loose`（既定）は sales / recruiting
+  等の明白な別職種のみ除外
+- `APP_JOB_SCORING_CONCURRENCY=4` — 同時スコアリング数
 
 SSRF ガードの確認：`{"url":"http://169.254.169.254/"}` や `http://localhost:8000/`
 を登録して `make worker` のログで `job_source.fetch` が `last_error` を残すのを見る

@@ -1,19 +1,23 @@
 """Rule-based primary filter (CLAUDE.local.md §4.2 step 6).
 
-Cheap, deterministic, and deliberately timid: it only drops jobs that are an
-*obvious* mismatch for the user's stated preferences, so we never spend an LLM
-call scoring them. Anything borderline passes through to the LLM match score
-(step 8). Dropped jobs are not stored.
+Cheap, deterministic gate before the LLM match score (step 8). Dropped jobs are
+not stored. On a large board this is the main cost lever, tuned by
+``APP_JOB_TITLE_MATCH_MODE``:
 
-For a large ATS board this is the main cost lever — the role-family check below
-keeps the LLM off jobs in a clearly unrelated function (sales, recruiting, …)
-when the user has said what roles they want.
+- ``loose`` (default) — drop only obvious mismatches: wrong employment type,
+  on-site when remote is required, or a title in a clearly different function
+  (sales, recruiting, …) that shares no word with the user's desired roles.
+- ``strict`` — additionally require the title to match one of the user's
+  desired-role keywords (prefix-aware, so "engineer" matches "Engineering
+  Manager"). Everything else is dropped without an LLM call.
+- ``off`` — no title-based filtering at all.
 """
 
 from __future__ import annotations
 
 import re
 
+from app.core.config import settings
 from app.jobs.normalize import normalize_text
 from app.jobs.schema import JobStructured
 from app.models import JobPreference
@@ -65,6 +69,19 @@ def _words(text: str) -> set[str]:
     return set(_WORD.findall(normalize_text(text))) - _GENERIC
 
 
+def _prefix_match(a: str, b: str, *, n: int = 4) -> bool:
+    """True if a and b share a leading run of >= n chars (engineer / engineering)."""
+    return len(a) >= n and len(b) >= n and (a.startswith(b[:n]) or b.startswith(a[:n]))
+
+
+def title_matches_desired_roles(title: str, desired_roles: list[str]) -> bool:
+    title_words = _words(title)
+    role_words = {w for role in desired_roles for w in _words(role) if len(w) >= 3}
+    if role_words & title_words:
+        return True
+    return any(_prefix_match(rw, tw) for rw in role_words for tw in title_words)
+
+
 def rejection_reason(structured: JobStructured, prefs: JobPreference | None) -> str | None:
     """Return why this job is an obvious mismatch, or None if it should be kept."""
     if prefs is None:
@@ -84,10 +101,12 @@ def rejection_reason(structured: JobStructured, prefs: JobPreference | None) -> 
             return "on-site only, but remote is required"
 
     desired = prefs.desired_roles or []
-    if desired:
-        title_words = _words(structured.title)
-        role_words = {w for role in desired for w in _words(role)}
-        if title_words.isdisjoint(role_words) and (title_words & _OFF_FAMILY):
+    mode = settings.job_title_match_mode
+    if desired and mode != "off":
+        matches = title_matches_desired_roles(structured.title, desired)
+        if not matches and mode == "strict":
+            return f"title {structured.title!r} doesn't match your desired roles"
+        if not matches and (_words(structured.title) & _OFF_FAMILY):
             return f"title {structured.title!r} is a different job family from your desired roles"
 
     return None

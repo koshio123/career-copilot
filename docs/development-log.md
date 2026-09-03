@@ -40,10 +40,12 @@ single object, `@graph`, lists; HTML-entity unescape; JPY `baseSalary`;
 an LLM call:
 - `JobIngestPipeline.resolve()` — classify then, per job: diff-gate
   (`content_hash` vs. stored `raw_text_hash`) and rule filter
-  (`app/jobs/filter.py`: obvious employment-type / remote mismatch, plus a
-  role-family check — a title in a clearly different function like sales or
-  recruiting, sharing no word with the user's desired roles, is dropped before
-  the LLM; the main cost lever on a big board). Survivors are LLM-scored
+  (`app/jobs/filter.py`: employment-type / remote mismatch, plus a title
+  pre-filter set by `APP_JOB_TITLE_MATCH_MODE` — `loose` (default) drops only
+  clearly off-family titles like sales / recruiting; `strict` also requires the
+  title to match a desired-role keyword (prefix-aware: "engineer" ≈
+  "Engineering Manager"); `off` disables it. This is the main cost lever on a
+  big board). Survivors are LLM-scored
   (`app/jobs/matching.py`) **concurrently** (`APP_JOB_SCORING_CONCURRENCY`,
   default 4) and threshold-gated.
   - Classification prefers **route A from the URL alone** — a
@@ -78,7 +80,7 @@ rationale and concerns, the route (`via greenhouse` / `json_ld`), and a
 | Gate | Result |
 |---|---|
 | `make lint` | ruff + mypy (136 files) ✓ ; eslint + tsc ✓ |
-| `make test` | pytest 143 ✓ ; vitest 8 ✓ ; coverage 92% |
+| `make test` | pytest 150 ✓ ; vitest 8 ✓ ; coverage 92% |
 | `pnpm run e2e` | 5 Playwright specs ✓ |
 | `alembic check` | no drift (no schema change) |
 | pipeline tests | Greenhouse fixture → score → save; below-threshold dropped; no-prefs saved unscored; unchanged skipped; disappeared pruned; unreachable / robots-blocked reported |

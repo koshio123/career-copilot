@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     match_score_threshold: int = 30
     # How many jobs to LLM-score at once during one source fetch.
     job_scoring_concurrency: int = 4
+    # Title pre-filter before LLM scoring (see app/jobs/filter.py):
+    #   loose  = drop only obvious off-family titles
+    #   strict = also require the title to match a desired-role keyword
+    #   off    = no title filtering
+    job_title_match_mode: Literal["off", "loose", "strict"] = "loose"
 
     # --- LLM (Phase 04) ---
     anthropic_api_key: str | None = None
