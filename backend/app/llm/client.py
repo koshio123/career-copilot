@@ -28,6 +28,17 @@ log = structlog.get_logger(__name__)
 _DEFAULT_SYSTEM = "You return only the requested structured data. Do not invent values."
 
 
+class LlmRequestError(Exception):
+    """A non-retryable LLM failure — a 4xx: bad request, auth, or (commonly)
+    an exhausted credit balance. Retrying the same call will not help."""
+
+
+def _status_message(exc: anthropic.APIStatusError) -> str:
+    body = exc.body if isinstance(exc.body, dict) else {}
+    err = body.get("error", {}) if isinstance(body.get("error"), dict) else {}
+    return str(err.get("message") or exc.message or f"HTTP {exc.status_code}")
+
+
 @dataclass(frozen=True, slots=True)
 class StructuredResult:
     data: dict[str, Any]
@@ -74,7 +85,14 @@ class LlmClient:
                 ],
                 tool_choice={"type": "tool", "name": tool_name},
             )
-        except anthropic.APIError as exc:
+        except anthropic.APIStatusError as exc:
+            log.warning("llm.api_error", status=exc.status_code, error=str(exc))
+            if exc.status_code == 429 or exc.status_code >= 500:
+                raise ServiceUnavailableError("The language model is unavailable.") from exc
+            # 400/401/403/404/422 — our request or the account is the problem;
+            # retrying won't help.
+            raise LlmRequestError(_status_message(exc)) from exc
+        except anthropic.APIError as exc:  # connection / timeout
             log.warning("llm.api_error", error=str(exc))
             raise ServiceUnavailableError("The language model is unavailable.") from exc
 

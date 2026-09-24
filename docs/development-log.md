@@ -5,6 +5,97 @@ phase. The roadmap is `development-plan.md`; decisions are in `adr/`.
 
 ---
 
+## 2026-09-02 — Phase 06 (part 2a): classification, adapters, matching
+
+Branch: `phase-06-jobs-part2`. Turns `job_source.fetch` into the real pipeline
+for routes **A** (ATS API) and **B** (JSON-LD). Route **C** (fallback crawl +
+Playwright) is part 2b.
+
+### Decisions taken with the user
+
+- **Match score = LLM, preferences vs. the job description** — *not* skills
+  (skill-gap is Phase 07). A cheap rule filter narrows first so the LLM only
+  scores plausible roles.
+- **Playwright** for route C goes in a **separate `browser` queue + worker**
+  (part 2b) — matches ADR-0005's Lambda/Fargate split.
+- **Save threshold = 30/100**, `APP_MATCH_SCORE_THRESHOLD`; jobs below it aren't
+  stored (re-fetched next run if preferences change).
+
+### What was built
+
+**Detection** (`app/ingest/detect.py`) — ATS vendor + board id from the
+registered URL's host/path, or from an embed `<script>`/`<iframe>`/link on a
+company careers page. Greenhouse / Lever / Ashby.
+
+**Adapters** (`app/ingest/ats/`) — one per vendor, `fetch(board_id, *, fetcher)
+-> list[FetchedJob]`, normalising each vendor's shape (and Ashby's JPY
+compensation) onto the shared `JobStructured`. Route-A calls skip the robots
+gate (ADR-0013) but keep the UA + rate limit.
+
+**JSON-LD** (`app/ingest/jsonld.py`) — `schema.org/JobPosting` via `selectolax`:
+single object, `@graph`, lists; HTML-entity unescape; JPY `baseSalary`;
+`TELECOMMUTE` → remote; missing fields → `needs_review`.
+
+**Pipeline** (`app/services/ingest.py`) — two phases so no DB transaction spans
+an LLM call:
+- `JobIngestPipeline.resolve()` — classify then, per job: diff-gate
+  (`content_hash` vs. stored `raw_text_hash`) and rule filter
+  (`app/jobs/filter.py`: employment-type / remote mismatch, plus a title
+  pre-filter set by `APP_JOB_TITLE_MATCH_MODE` — `loose` (default) drops only
+  clearly off-family titles like sales / recruiting; `strict` also requires the
+  title to match a desired-role keyword (prefix-aware: "engineer" ≈
+  "Engineering Manager"); `off` disables it. This is the main cost lever on a
+  big board). Survivors are LLM-scored
+  (`app/jobs/matching.py`) **concurrently** (`APP_JOB_SCORING_CONCURRENCY`,
+  default 4) and threshold-gated.
+  - Classification prefers **route A from the URL alone** — a
+    `boards.greenhouse.io/<board>` URL goes straight to the API, skipping the
+    robots gate and the SPA-shell page fetch (ADR-0013 exempts ATS APIs). A
+    plain careers page still gets robots + page fetch for embed / JSON-LD.
+- `persist()` — one transaction: upsert `jobs` + cluster into `job_postings`
+  (dedup key `vendor:external_id` or the ADR-0009 hash), keep the best-scored
+  view, prune jobs the source no longer lists and now-orphan postings (manual
+  postings are never pruned). Pruning is **skipped on an incomplete run** —
+  "gone" is indistinguishable from "not reached".
+
+**LLM error handling** — `LlmClient` splits Anthropic failures: 429 / 5xx /
+connection → `ServiceUnavailableError` (transient); other 4xx (bad request,
+auth, **exhausted credit balance**) → `LlmRequestError` (non-retryable). During
+a fetch, a per-job `ValidationError` (model returned an unusable shape even
+after `MatchOutcome`'s coercion) skips that one job; an `LlmRequestError` /
+`ServiceUnavailableError` stops scoring, records the reason on the source, and
+**still persists whatever scored** — the calls (and money) already spent aren't
+thrown away, and the run isn't retried into re-spending them.
+
+**Worker** — `job_source.fetch` rewritten: load state → resolve → persist →
+stamp `source_type` / `ats_vendor` / `last_success_at` / `last_error` on the
+source.
+
+**Frontend** — a job row's expander now shows the match score, the LLM
+rationale and concerns, the route (`via greenhouse` / `json_ld`), and a
+"check" badge when fields are unconfirmed.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `make lint` | ruff + mypy (136 files) ✓ ; eslint + tsc ✓ |
+| `make test` | pytest 150 ✓ ; vitest 8 ✓ ; coverage 92% |
+| `pnpm run e2e` | 5 Playwright specs ✓ |
+| `alembic check` | no drift (no schema change) |
+| pipeline tests | Greenhouse fixture → score → save; below-threshold dropped; no-prefs saved unscored; unchanged skipped; disappeared pruned; unreachable / robots-blocked reported |
+
+### Deferred to part 2b
+
+- Route C: fallback crawl (list→detail link discovery, `trafilatura` body
+  extract) + `job_source.render` on the `browser` queue (Playwright) +
+  `make browser-worker`.
+- LLM "is this a job detail page?" gate for route C.
+- `job_source.fetch` for a company careers page with no ATS embed and no
+  JSON-LD currently reports "add the roles manually".
+
+---
+
 ## 2026-09-01 — Phase 06 (part 1): job ingestion foundation
 
 Branch: `phase-06-jobs`. Phase 06 is split in two: **part 1** (this) is the

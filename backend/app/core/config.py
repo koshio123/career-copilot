@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     fetch_user_agent: str = "career-copilot/0.1 (+https://github.com/koshio123/career-copilot)"
     fetch_timeout_seconds: float = 10.0
     fetch_max_bytes: int = 5 * 1024 * 1024
+    # Trusted ATS JSON APIs return the whole board at once — a large company's
+    # feed (with inline descriptions) can be tens of MB.
+    ats_response_max_bytes: int = 40 * 1024 * 1024
     fetch_max_redirects: int = 3
     fetch_min_host_interval_seconds: float = 3.0
     robots_cache_ttl_seconds: int = 86_400
@@ -88,6 +91,17 @@ class Settings(BaseSettings):
     fetch_allow_private_hosts: bool = False
     # Default re-fetch cadence for a newly registered source.
     job_source_default_interval_hours: int = 24
+    # Jobs scoring below this (0-100, LLM match of preferences vs. the posting)
+    # are not saved (CLAUDE.local.md §4.2 step 9). Starts middling; tune down if
+    # good roles are being dropped.
+    match_score_threshold: int = 30
+    # How many jobs to LLM-score at once during one source fetch.
+    job_scoring_concurrency: int = 4
+    # Title pre-filter before LLM scoring (see app/jobs/filter.py):
+    #   loose  = drop only obvious off-family titles
+    #   strict = also require the title to match a desired-role keyword
+    #   off    = no title filtering
+    job_title_match_mode: Literal["off", "loose", "strict"] = "loose"
 
     # --- LLM (Phase 04) ---
     anthropic_api_key: str | None = None

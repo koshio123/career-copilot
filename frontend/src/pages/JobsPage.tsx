@@ -19,6 +19,13 @@ interface ManualForm {
   description: string
 }
 
+interface Match {
+  score: number
+  rationale: string
+  matched?: string[]
+  concerns?: string[]
+}
+
 interface Structured {
   employment_type?: string | null
   remote?: boolean | null
@@ -28,6 +35,10 @@ interface Structured {
   preferred_skills?: string[]
   description?: string
   apply_url?: string | null
+  needs_review?: string[]
+  source_type?: string
+  ats_vendor?: string
+  match?: Match
 }
 
 function score(value: number | null): string {
@@ -65,7 +76,17 @@ function JobRow({ job, onBookmark }: { job: JobPosting; onBookmark: () => void }
             ▸
           </span>
           <span className="min-w-0">
-            <span className="block truncate font-medium">{job.canonical_title}</span>
+            <span className="flex items-center gap-2">
+              <span className="truncate font-medium">{job.canonical_title}</span>
+              {s.needs_review && s.needs_review.length > 0 && (
+                <span
+                  className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                  title={`Unconfirmed: ${s.needs_review.join(', ')}`}
+                >
+                  check
+                </span>
+              )}
+            </span>
             <span className="block truncate text-sm text-neutral-500">
               {job.company_name}
               {job.location_normalized ? ` · ${job.location_normalized}` : ''}
@@ -90,6 +111,24 @@ function JobRow({ job, onBookmark }: { job: JobPosting; onBookmark: () => void }
 
       {open && (
         <div className="mt-3 space-y-3 rounded-md bg-neutral-50 p-4 text-sm dark:bg-neutral-900">
+          {s.match && (
+            <div className="rounded-md border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950">
+              <p className="font-medium">
+                Match {s.match.score}
+                <span className="ml-2 font-normal text-neutral-500">
+                  {s.source_type === 'ats' ? `via ${s.ats_vendor}` : s.source_type}
+                </span>
+              </p>
+              <p className="mt-1 text-neutral-700 dark:text-neutral-300">{s.match.rationale}</p>
+              {s.match.concerns && s.match.concerns.length > 0 && (
+                <ul className="mt-1 list-inside list-disc text-neutral-500">
+                  {s.match.concerns.map((c) => (
+                    <li key={c}>{c}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-neutral-600 dark:text-neutral-400">
             {s.employment_type && (
               <>
@@ -225,8 +264,12 @@ export function JobsPage() {
         {jobs.isLoading && <Spinner />}
         {jobs.data?.length === 0 && (
           <p className="text-sm text-neutral-500">
-            No jobs yet. Use <span className="font-medium">Add a job manually</span> above —
-            automatic extraction from registered career pages is coming next.
+            No jobs yet. Register a career-page source or use{' '}
+            <span className="font-medium">Add a job manually</span> above. Set your{' '}
+            <Link to="/preferences" className="text-sky-600 hover:underline">
+              preferences
+            </Link>{' '}
+            so fetched jobs can be scored.
           </p>
         )}
         <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">

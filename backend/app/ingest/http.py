@@ -123,13 +123,13 @@ def _assert_url_allowed(url: str) -> str:
     return url
 
 
-async def _read_capped(response: httpx.Response) -> bytes:
+async def _read_capped(response: httpx.Response, limit: int) -> bytes:
     chunks: list[bytes] = []
     total = 0
     async for chunk in response.aiter_bytes():
         total += len(chunk)
-        if total > settings.fetch_max_bytes:
-            raise FetchTooLargeError(f"response exceeded {settings.fetch_max_bytes} bytes")
+        if total > limit:
+            raise FetchTooLargeError(f"response exceeded {limit} bytes")
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -139,8 +139,14 @@ async def safe_get(
     *,
     client: httpx.AsyncClient | None = None,
     headers: dict[str, str] | None = None,
+    max_bytes: int | None = None,
 ) -> FetchResult:
-    """GET ``url`` with SSRF checks, manual redirects, and size/time caps."""
+    """GET ``url`` with SSRF checks, manual redirects, and size/time caps.
+
+    ``max_bytes`` overrides ``settings.fetch_max_bytes`` — used for trusted ATS
+    JSON APIs whose full job-board payload can exceed the page cap.
+    """
+    limit = max_bytes if max_bytes is not None else settings.fetch_max_bytes
     owns_client = client is None
     client = client or httpx.AsyncClient(
         timeout=httpx.Timeout(settings.fetch_timeout_seconds),
@@ -161,7 +167,7 @@ async def safe_get(
                             urljoin(current, response.headers["location"])
                         )
                         continue
-                    body = await _read_capped(response)
+                    body = await _read_capped(response, limit)
                     return FetchResult(
                         url=str(response.url),
                         status_code=response.status_code,
